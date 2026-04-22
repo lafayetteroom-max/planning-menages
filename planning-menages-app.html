@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Planning Ménages — Lodgify</title>
+<style>
+:root { color-scheme: light; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f7fa; color: #1a1a2e; line-height: 1.5; padding: 16px; max-width: 1200px; margin: 0 auto; }
+.header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px; }
+.header h1 { font-size: 22px; font-weight: 700; color: #1a1a2e; }
+.header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.connection-status { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.connection-status.connected { background: #e8f8f0; color: #27ae60; }
+.connection-status.error { background: #fde8e8; color: #c0392b; }
+.connection-status.loading { background: #e8f0fe; color: #2e75b6; }
+.tabs { display: flex; gap: 4px; margin-bottom: 16px; background: #e8ecf1; border-radius: 10px; padding: 3px; }
+.tab { padding: 8px 16px; border: none; background: transparent; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 500; color: #64748b; transition: all 0.2s; }
+.tab.active { background: #fff; color: #1a5276; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.stat-card { background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.stat-value { font-size: 24px; font-weight: 700; }
+.stat-label { font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.stat-today { color: #e67e22; }
+.stat-week { color: #2e75b6; }
+.stat-done { color: #27ae60; }
+.stat-pending { color: #e74c3c; }
+.legend { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.legend-item { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #64748b; }
+.legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+.calendar-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.calendar-nav h2 { font-size: 16px; font-weight: 600; }
+.nav-btn { padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
+.nav-btn:hover { background: #f0f0f0; }
+.calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 16px; }
+.cal-header { text-align: center; font-size: 11px; font-weight: 600; color: #64748b; padding: 6px 2px; text-transform: uppercase; }
+.cal-day { background: #fff; min-height: 90px; padding: 4px; border-radius: 6px; border: 1px solid #eee; position: relative; cursor: pointer; transition: all 0.15s; }
+.cal-day:hover { border-color: #2e75b6; box-shadow: 0 2px 8px rgba(46,117,182,0.15); }
+.cal-day.other-month { background: #fafafa; opacity: 0.4; }
+.cal-day.today { border-color: #2e75b6; border-width: 2px; background: #f0f7ff; }
+.cal-day-num { font-size: 12px; font-weight: 600; color: #333; margin-bottom: 1px; }
+.cal-bars { display: flex; flex-direction: column; gap: 0; }
+.cal-lane { height: 26px; overflow: hidden; }
+.cal-lane + .cal-lane { margin-top: 4px; } /* espace entre les deux propriétés */
+.cal-bar { height: 10px; opacity: 0.55; }
+.cal-day.today .cal-day-num { color: #fff; background: #2e75b6; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.cal-event { font-size: 10px; padding: 2px 4px; border-radius: 3px; margin-bottom: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #fff; font-weight: 500; cursor: pointer; }
+.cal-event.checkout { opacity: 0.65; font-style: italic; }
+.cal-event.cleaning.done { background: #27ae60 !important; text-decoration: line-through; opacity: 0.85; }
+.cal-check { display: flex; align-items: center; gap: 4px; cursor: pointer; margin: 0; }
+.cal-check input[type="checkbox"] { width: 14px; height: 14px; cursor: pointer; accent-color: #27ae60; flex-shrink: 0; margin: 0; }
+.cal-check-label { overflow: hidden; text-overflow: ellipsis; }
+/* Royal Rose = rose poudré, Royal Pearl = bleu/gris */
+.prop-royal-rose { background: #d4a0a0; } .prop-royal-pearl { background: #8a9bb5; }
+.prop-0 { background: #d4a0a0; } .prop-1 { background: #8a9bb5; } .prop-2 { background: #1abc9c; }
+.prop-3 { background: #e67e22; } .prop-4 { background: #e74c3c; } .prop-5 { background: #34495e; }
+.task-list { display: flex; flex-direction: column; gap: 8px; }
+.task-card { background: #fff; border-radius: 10px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); display: flex; gap: 12px; align-items: flex-start; border-left: 4px solid #e67e22; transition: all 0.2s; cursor: pointer; }
+.task-card.done { border-left-color: #27ae60; opacity: 0.7; }
+.task-card:hover { box-shadow: 0 3px 10px rgba(0,0,0,0.1); transform: translateY(-1px); }
+.task-check { width: 22px; height: 22px; border-radius: 50%; border: 2px solid #ddd; cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; transition: all 0.2s; }
+.task-check:hover { border-color: #27ae60; background: #e8f8f0; }
+.task-card.done .task-check { background: #27ae60; border-color: #27ae60; }
+.task-check-mark { display: none; color: #fff; font-size: 12px; }
+.task-card.done .task-check-mark { display: block; }
+.task-info { flex: 1; min-width: 0; }
+.task-property { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.task-property-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+.task-details { font-size: 12px; color: #64748b; margin-top: 4px; }
+.task-details span { display: inline-flex; align-items: center; gap: 3px; margin-right: 12px; }
+.task-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+.badge-urgent { background: #fde8e8; color: #e74c3c; }
+.badge-today { background: #fff3e0; color: #e67e22; }
+.badge-upcoming { background: #e8f4fd; color: #2e75b6; }
+.badge-done { background: #e8f8f0; color: #27ae60; }
+.detail-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.25); z-index: 100; backdrop-filter: blur(2px); opacity: 0; pointer-events: none; transition: opacity 0.25s; }
+.detail-overlay.show { opacity: 1; pointer-events: auto; }
+.detail-panel { position: fixed; top: 0; right: 0; bottom: 0; width: 400px; max-width: 92vw; background: #fff; padding: 24px; overflow-y: auto; box-shadow: -4px 0 20px rgba(0,0,0,0.15); transform: translateX(100%); transition: transform 0.3s ease; z-index: 101; }
+.detail-overlay.show .detail-panel { transform: translateX(0); }
+.detail-close { float: right; background: none; border: none; font-size: 20px; cursor: pointer; color: #999; padding: 4px; }
+.detail-close:hover { color: #333; }
+.detail-title { font-size: 18px; font-weight: 700; margin-bottom: 14px; display: flex; align-items: center; gap: 8px; }
+.detail-section { margin-bottom: 14px; }
+.detail-section h4 { font-size: 11px; text-transform: uppercase; color: #999; letter-spacing: 0.5px; margin-bottom: 4px; }
+.detail-section p { font-size: 14px; line-height: 1.6; }
+.detail-notes { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px; font-size: 13px; resize: vertical; min-height: 60px; font-family: inherit; }
+.detail-notes:focus { outline: none; border-color: #2e75b6; box-shadow: 0 0 0 2px rgba(46,117,182,0.15); }
+.btn { padding: 8px 14px; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; transition: all 0.2s; }
+.btn-primary { background: #2e75b6; color: #fff; }
+.btn-primary:hover { background: #1a5276; }
+.btn-outline { background: #fff; color: #2e75b6; border: 1px solid #2e75b6; }
+.btn-outline:hover { background: #e8f0fe; }
+.btn-success { background: #27ae60; color: #fff; }
+.btn-success:hover { background: #1e8449; }
+.btn-danger { background: #fff; color: #e74c3c; border: 1px solid #e74c3c; }
+.btn-danger:hover { background: #fde8e8; }
+.api-section { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+.api-section h3 { font-size: 14px; margin-bottom: 8px; }
+.api-section p { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+.api-input-row { display: flex; gap: 8px; }
+.api-input { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 13px; font-family: monospace; }
+.api-input:focus { outline: none; border-color: #2e75b6; }
+.api-status { font-size: 12px; margin-top: 8px; padding: 8px 12px; border-radius: 8px; }
+.api-status.success { background: #e8f8f0; color: #27ae60; }
+.api-status.error { background: #fde8e8; color: #e74c3c; }
+.api-status.loading { background: #fff3e0; color: #e67e22; }
+.filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.filter-chip { padding: 5px 12px; border: 1px solid #ddd; border-radius: 20px; font-size: 12px; cursor: pointer; background: #fff; transition: all 0.15s; }
+.filter-chip:hover { border-color: #2e75b6; }
+.filter-chip.active { background: #2e75b6; color: #fff; border-color: #2e75b6; }
+.checklist { list-style: none; padding: 0; margin: 0; }
+.checklist-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 8px; transition: background 0.15s; cursor: pointer; border-bottom: 1px solid #f0f0f0; }
+.checklist-item:last-child { border-bottom: none; }
+.checklist-item:hover { background: #f8f9fa; }
+.checklist-item input[type="checkbox"] { width: 18px; height: 18px; accent-color: #27ae60; cursor: pointer; flex-shrink: 0; }
+.checklist-item label { flex: 1; font-size: 14px; cursor: pointer; user-select: none; }
+.checklist-item.checked label { text-decoration: line-through; color: #999; }
+.checklist-progress { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.checklist-bar { flex: 1; height: 8px; background: #eee; border-radius: 4px; overflow: hidden; }
+.checklist-bar-fill { height: 100%; background: #27ae60; border-radius: 4px; transition: width 0.3s; }
+.checklist-count { font-size: 12px; font-weight: 600; color: #64748b; white-space: nowrap; }
+.empty-state { text-align: center; padding: 60px 20px; color: #999; }
+.empty-state h3 { font-size: 16px; margin-bottom: 8px; color: #666; }
+@media (max-width: 768px) {
+  body { padding: 8px; }
+  .header h1 { font-size: 18px; }
+  .calendar { font-size: 10px; gap: 1px; }
+  .cal-day { min-height: 65px; padding: 2px; }
+  .cal-event { font-size: 9px; padding: 2px 3px; }
+  .cal-check input[type="checkbox"] { width: 16px; height: 16px; }
+  .cal-bar { height: 7px; }
+  .cal-lane { height: 22px; }
+  .stats { grid-template-columns: repeat(2, 1fr); }
+  .detail-panel { width: 100vw; max-width: 100vw; padding: 16px; border-radius: 0; }
+  .checklist-item { padding: 12px; min-height: 44px; } /* min touch target 44px */
+  .checklist-item input[type="checkbox"] { width: 22px; height: 22px; }
+  .checklist-item label { font-size: 15px; }
+  .btn { padding: 12px 16px; font-size: 14px; min-height: 44px; }
+  .nav-btn { padding: 10px 14px; font-size: 14px; min-height: 44px; }
+  .tab { padding: 10px 14px; font-size: 14px; }
+  .task-card { padding: 14px; }
+  .filter-chip { padding: 8px 14px; font-size: 13px; min-height: 40px; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>Planning Menages</h1>
+    <span class="connection-status loading" id="connStatus">Connexion Lodgify...</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-outline" onclick="exportICS()">Export .ics</button>
+    <button class="btn btn-primary" onclick="toggleApiPanel()">Connecter Lodgify</button>
+  </div>
+</div>
+
+<div id="apiPanel" class="api-section">
+  <h3>Connexion a Lodgify</h3>
+  <p>Collez votre cle API pour charger vos vraies reservations. La cle est envoyee uniquement au serveur local (localhost), jamais a un tiers.</p>
+  <div class="api-input-row">
+    <input type="password" id="apiKeyInput" class="api-input" placeholder="Votre cle API Lodgify..." />
+    <button class="btn btn-primary" onclick="fetchLodgifyData()">Connecter</button>
+  </div>
+  <div id="apiStatus"></div>
+</div>
+
+<div class="stats" id="statsBar"></div>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchView('calendar', this)">Calendrier</button>
+  <button class="tab" onclick="switchView('list', this)">Liste des menages</button>
+</div>
+
+<div id="calendarView">
+  <div class="calendar-nav">
+    <button class="nav-btn" onclick="changeMonth(-1)">← Mois precedent</button>
+    <h2 id="monthTitle"></h2>
+    <button class="nav-btn" onclick="changeMonth(1)">Mois suivant →</button>
+  </div>
+  <div class="legend" id="legend"></div>
+  <div class="calendar" id="calendar"></div>
+</div>
+
+<div id="listView" style="display:none;">
+  <div class="filters" id="filters"></div>
+  <div class="task-list" id="taskList"></div>
+</div>
+
+<div class="detail-overlay" id="detailOverlay" onclick="if(event.target===this)closeDetail()">
+  <div class="detail-panel" id="detailPanel"></div>
+</div>
+
+<script>
+// ===== STATE =====
+let PROPERTIES = [
+  { id: 494975, name: "Royal Rose", color: "#d4a0a0", colorClass: "prop-0",
+    extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] },
+  { id: 667331, name: "Royal Pearl", color: "#8a9bb5", colorClass: "prop-1",
+    extras: ['🛏️ Lit parapluie (bébé)'] }
+];
+
+const today = new Date();
+// IMPORTANT: use local date, NOT UTC — toISOString() shifts dates by timezone
+const fmt = d => {
+  try {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  } catch(e) { return ''; }
+};
+function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
+
+let bookings = [];
+let cleaningStatus = {};
+let cleaningNotes = {};
+let checklistState = {}; // { taskId: { 0: true, 3: true, ... } }
+let customTimes = {}; // { taskId: { checkout: "11:00", checkin: "17:00" } }
+let customGuests = {}; // { bookingId: { adults, children, babies } }
+let messageCache = {}; // { reservationId: [...messages] }
+let messageAlerts = {}; // { bookingId: { baby: true/false, extraBed: true/false, ... } }
+let stateVersion = 0; // server state version for sync
+let syncPaused = false; // pause sync during local edits
+
+// ===== STATE SYNC (shared between users) =====
+async function syncPushState() {
+  try {
+    const payload = {
+      cleaningStatus, cleaningNotes, checklistState, customTimes, customGuests
+    };
+    const res = await fetch('/state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      stateVersion = data.version || 0;
+    }
+  } catch(e) { console.warn('Sync push failed:', e.message); }
+}
+
+async function syncPullState() {
+  if (syncPaused) return;
+  try {
+    // Quick version check first
+    const vRes = await fetch('/state/version');
+    if (!vRes.ok) return;
+    const vData = await vRes.json();
+    if (vData.version === stateVersion) return; // nothing changed
+
+    // Full state pull
+    const res = await fetch('/state');
+    if (!res.ok) return;
+    const data = await res.json();
+    cleaningStatus = data.cleaningStatus || {};
+    cleaningNotes = data.cleaningNotes || {};
+    checklistState = data.checklistState || {};
+    customTimes = data.customTimes || {};
+    customGuests = data.customGuests || {};
+    stateVersion = data.version || 0;
+    render();
+    console.log('State synced from server (v' + stateVersion + ')');
+  } catch(e) { console.warn('Sync pull failed:', e.message); }
+}
+
+// Debounced push: wait 500ms after last change before syncing
+let syncTimeout = null;
+function scheduleSyncPush() {
+  clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(syncPushState, 500);
+}
+
+// Poll for changes from other users every 30s
+setInterval(syncPullState, 30000);
+
+const CHECKLIST_ITEMS = [
+  { icon: '🛏️', label: 'Faire les lits / changer les draps' },
+  { icon: '🛁', label: 'Nettoyer salle(s) de bain' },
+  { icon: '🚽', label: 'Nettoyer les WC' },
+  { icon: '🍳', label: 'Nettoyer la cuisine (plan de travail, évier, plaques)' },
+  { icon: '🍽️', label: 'Vaisselle / vider lave-vaisselle' },
+  { icon: '🧹', label: 'Aspirer tous les sols' },
+  { icon: '🧽', label: 'Serpillière / laver les sols' },
+  { icon: '🪞', label: 'Miroirs et vitres intérieures' },
+  { icon: '🗑️', label: 'Vider les poubelles' },
+  { icon: '🧴', label: 'Réapprovisionner (savon, PQ, produits d\'accueil)' },
+  { icon: '👕', label: 'Serviettes propres et torchons' },
+  { icon: '📦', label: 'Vérifier les objets oubliés par le client' },
+  { icon: '🔑', label: 'Vérifier serrures et clés' },
+  { icon: '✨', label: 'Contrôle final (odeurs, aspect général)' },
+];
+
+let currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+let currentView = 'calendar';
+let filterProperty = 'all';
+let filterStatus = 'all';
+let isConnected = false;
+
+// Display names for calendar (short labels)
+const displayNames = {
+  'royal rose': 'Entretien Rose',
+  'royal pearl': 'Entretien Perle',
+};
+function getDisplayName(propName) {
+  return displayNames[propName.toLowerCase()] || ('Entretien ' + propName);
+}
+
+function formatGuestDetail(total, adults, children, babies) {
+  let parts = [];
+  if (adults > 0) parts.push(`${adults} adulte${adults > 1 ? 's' : ''}`);
+  if (children > 0) parts.push(`${children} enfant${children > 1 ? 's' : ''}`);
+  if (babies > 0) parts.push(`${babies} bébé${babies > 1 ? 's' : ''}`);
+  if (parts.length === 0) return `${total} personne${total > 1 ? 's' : ''}`;
+  return parts.join(', ') + ` (${total} pers.)`;
+}
+
+function renderGuestEditor(bookingId, adults, children, babies) {
+  if (!bookingId) return '';
+  const inputStyle = 'width:50px;padding:4px 6px;border:1px solid #ddd;border-radius:6px;font-size:14px;text-align:center;';
+  const labelStyle = 'font-size:11px;color:#999;display:block;margin-bottom:2px;';
+  return `<div style="display:flex;gap:12px;margin-top:6px;flex-wrap:wrap;align-items:end;">
+    <div>
+      <label style="${labelStyle}">Adultes</label>
+      <input type="number" min="0" max="20" value="${adults}" onchange="saveGuestCount(${bookingId},'adults',this.value);reopenCurrentDetail()" style="${inputStyle}" />
+    </div>
+    <div>
+      <label style="${labelStyle}">Enfants</label>
+      <input type="number" min="0" max="10" value="${children}" onchange="saveGuestCount(${bookingId},'children',this.value);reopenCurrentDetail()" style="${inputStyle}" />
+    </div>
+    <div>
+      <label style="${labelStyle}">Bébés</label>
+      <input type="number" min="0" max="5" value="${babies}" onchange="saveGuestCount(${bookingId},'babies',this.value);reopenCurrentDetail()" style="${inputStyle}" />
+    </div>
+  </div>`;
+}
+
+function renderMessageAlertBadges(alerts, type) {
+  if (!alerts || Object.keys(alerts).length === 0) return '';
+  const items = [];
+  if (alerts.baby) items.push('🍼 <strong>Bébé mentionné</strong> dans les messages');
+  if (alerts.noBaby && !alerts.baby) items.push('🍼 Client a précisé <strong>pas de bébé</strong>');
+  if (alerts.cot) items.push('🛏️ <strong>Lit parapluie demandé</strong> dans les messages');
+  if (alerts.extraBed) items.push('🛏️ <strong>Matelas/lit d\'appoint</strong> mentionné dans les messages');
+  if (alerts.children) items.push('👶 <strong>Enfant(s)</strong> mentionné(s) dans les messages');
+  if (items.length === 0) return '';
+  return `<div style="margin-top:8px;padding:8px 12px;background:#e8f4fd;border-radius:8px;border-left:3px solid #2e75b6;">
+    <div style="font-size:11px;color:#2e75b6;font-weight:600;margin-bottom:4px;">Detecte dans la messagerie (${type})</div>
+    ${items.map(i => `<div style="font-size:13px;margin-bottom:2px;">${i}</div>`).join('')}
+  </div>`;
+}
+
+function renderExtrasAlert(propertyId, total, adults, children, babies) {
+  const prop = PROPERTIES.find(p => p.id == propertyId);
+  if (!prop) return '';
+  const alerts = [];
+
+  const extras = prop.extras || [];
+  // Bébé détecté → lit parapluie (si dispo)
+  if (babies > 0 && extras.some(e => e.toLowerCase().includes('parapluie'))) {
+    alerts.push('🍼 Bébé → <strong>préparer le lit parapluie</strong>');
+  }
+  // 3e personne → matelas gonflable (si dispo)
+  if ((total > 2 || adults > 2) && extras.some(e => e.toLowerCase().includes('matelas'))) {
+    alerts.push('🛏️ 3e personne → <strong>préparer le matelas gonflable</strong>');
+  }
+  // 3e personne mais pas de matelas dispo
+  if ((total > 2 || adults > 2) && !extras.some(e => e.toLowerCase().includes('matelas')) && babies === 0) {
+    alerts.push('⚠️ 3+ personnes — pas de matelas supplémentaire disponible');
+  }
+
+  if (alerts.length === 0) return '';
+  return `<div style="margin-top:8px;padding:10px 12px;background:#fff8e1;border-radius:8px;border-left:3px solid #f9a825;">
+    ${alerts.map(a => `<div style="font-size:13px;margin-bottom:4px;">${a}</div>`).join('')}
+  </div>`;
+}
+
+// ===== API =====
+async function fetchLodgifyData() {
+  const key = document.getElementById('apiKeyInput').value.trim();
+  if (!key) return;
+  const status = document.getElementById('apiStatus');
+  const connEl = document.getElementById('connStatus');
+  status.className = 'api-status loading';
+  status.textContent = 'Connexion a Lodgify via le serveur local...';
+  connEl.className = 'connection-status loading';
+  connEl.textContent = 'Connexion...';
+
+  try {
+    // ===== FETCH PROPERTIES =====
+    const propRes = await fetch('/api/v2/properties', {
+      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+    });
+    if (!propRes.ok) {
+      const errText = await propRes.text().catch(() => '');
+      throw new Error('Erreur Lodgify (HTTP ' + propRes.status + ')' + (errText ? ': ' + errText.substring(0, 200) : ''));
+    }
+    const propsRaw = await propRes.json();
+    console.log('LODGIFY /properties RAW:', JSON.stringify(propsRaw, null, 2));
+
+    // Parse properties — handle array or object with items/results
+    let propsList = [];
+    if (Array.isArray(propsRaw)) propsList = propsRaw;
+    else if (propsRaw.items) propsList = propsRaw.items;
+    else if (propsRaw.results) propsList = propsRaw.results;
+    else if (propsRaw.count !== undefined && propsRaw.items) propsList = propsRaw.items;
+
+    // Known property config (colors + equipment)
+    const knownProps = {
+      'royal rose': { color: '#d4a0a0', extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] },
+      'royal pearl': { color: '#8a9bb5', extras: ['🛏️ Lit parapluie (bébé)'] },
+    };
+    const fallbackColors = ["#1abc9c","#e67e22","#2ecc71","#9b59b6","#e74c3c","#34495e","#f39c12","#16a085"];
+
+    if (propsList.length > 0) {
+      console.log('First property keys:', Object.keys(propsList[0]));
+      let colorIdx = 0;
+
+      PROPERTIES = propsList.map((p, i) => {
+        const name = p.name || p.internal_name || p.Name || p.property_name || p.title || ("Logement " + (p.id || i));
+        const nameLower = name.toLowerCase();
+        const known = knownProps[nameLower];
+        const color = known ? known.color : fallbackColors[colorIdx++ % fallbackColors.length];
+        const extras = known ? known.extras : [];
+        return {
+          id: p.id || p.property_id || p.Id,
+          name, color, colorClass: "prop-" + i, extras
+        };
+      });
+      let styleEl = document.getElementById('dynStyles');
+      if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'dynStyles'; document.head.appendChild(styleEl); }
+      styleEl.textContent = PROPERTIES.map((p, i) => `.prop-${i} { background: ${p.color}; }`).join('\n');
+    }
+
+    // ===== FETCH RESERVATIONS via /v1/reservation =====
+    // Only load from 10 days before today onwards (no need for old history)
+    status.textContent = 'Chargement des reservations...';
+
+    const dateFrom = fmt(addDays(today, -10)); // 10 jours avant aujourd'hui
+
+    let allRawItems = [];
+    let rawApiDump = '';
+
+    try {
+      const seenIds = new Set();
+      let paginationMethod = '';
+
+      // offset-based pagination with date filter
+      for (let offset = 0; offset < 2000; offset += 50) {
+        const resUrl = `/api/v1/reservation?offset=${offset}&limit=50&arrival_start=${dateFrom}`;
+        const resRes = await fetch(resUrl, {
+          headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+        });
+        if (!resRes.ok) break;
+        const json = await resRes.json();
+        let pageItems = Array.isArray(json) ? json : [];
+        if (!pageItems.length && json && typeof json === 'object') {
+          for (const k of Object.keys(json)) {
+            if (Array.isArray(json[k])) { pageItems = json[k]; break; }
+          }
+        }
+        if (pageItems.length === 0) break;
+
+        let newCount = 0;
+        for (const item of pageItems) {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allRawItems.push(item);
+            newCount++;
+          }
+        }
+        status.textContent = `${allRawItems.length} reservations...`;
+
+        if (offset === 0) {
+          paginationMethod = `offset+date (${pageItems.length}/page, depuis ${dateFrom})`;
+          rawApiDump = `First item ALL KEYS:\n${Object.keys(pageItems[0]).join(', ')}\n\nFirst item FULL:\n${JSON.stringify(pageItems[0], null, 2)}`;
+        }
+
+        if (newCount === 0) break;
+      }
+
+      // Fallback: if date filter returned nothing, try without filter but still paginate
+      if (allRawItems.length === 0) {
+        seenIds.clear();
+        for (let offset = 0; offset < 5000; offset += 10) {
+          const resUrl = `/api/v1/reservation?offset=${offset}&limit=50`;
+          const resRes = await fetch(resUrl, {
+            headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+          });
+          if (!resRes.ok) break;
+          const json = await resRes.json();
+          let pageItems = Array.isArray(json) ? json : [];
+          if (!pageItems.length && json && typeof json === 'object') {
+            for (const k of Object.keys(json)) {
+              if (Array.isArray(json[k])) { pageItems = json[k]; break; }
+            }
+          }
+          if (pageItems.length === 0) break;
+
+          let newCount = 0;
+          for (const item of pageItems) {
+            if (!seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              allRawItems.push(item);
+              newCount++;
+            }
+          }
+          status.textContent = `${allRawItems.length} reservations (sans filtre)...`;
+
+          if (offset === 0) {
+            paginationMethod = `offset sans filtre (${pageItems.length}/page)`;
+            rawApiDump = `First item ALL KEYS:\n${Object.keys(pageItems[0]).join(', ')}\n\nFirst item FULL:\n${JSON.stringify(pageItems[0], null, 2)}`;
+          }
+          if (newCount === 0) break;
+        }
+      }
+
+      rawApiDump = `Total: ${allRawItems.length} reservations (methode: ${paginationMethod})\n\n` + rawApiDump;
+
+    } catch(fetchErr) {
+      rawApiDump += `\nFETCH ERROR: ${fetchErr.message}`;
+    }
+
+    if (allRawItems.length > 0) {
+      const items = allRawItems;
+      console.log('First reservation keys:', Object.keys(items[0]));
+      console.log('First reservation FULL:', JSON.stringify(items[0], null, 2));
+      if (items.length > 1) console.log('Last reservation FULL:', JSON.stringify(items[items.length-1], null, 2));
+
+      {
+        bookings = items.map((r, i) => {
+          // Property ID: root or in rooms
+          const propId = r.property_id ?? r.house_id
+            ?? r.rooms?.[0]?.house_id ?? r.rooms?.[0]?.property_id ?? null;
+
+          // Guest name: v1 nests as guest.guest_name.full_name
+          let gName = "Client";
+          if (r.guest?.guest_name?.full_name) gName = r.guest.guest_name.full_name;
+          else if (r.guest?.guest_name?.first_name) gName = (r.guest.guest_name.first_name + ' ' + (r.guest.guest_name.last_name || '')).trim();
+          else if (typeof r.guest_name === 'object' && r.guest_name?.full_name) gName = r.guest_name.full_name;
+          else if (typeof r.guest_name === 'string') gName = r.guest_name;
+          else if (r.guest?.name) gName = r.guest.name;
+          gName = gName.trim() || "Client";
+
+          // Dates: try root level then rooms
+          const ci = r.arrival ?? r.date_arrival ?? r.check_in
+            ?? r.rooms?.[0]?.date_arrival ?? r.rooms?.[0]?.arrival ?? null;
+          const co = r.departure ?? r.date_departure ?? r.check_out
+            ?? r.rooms?.[0]?.date_departure ?? r.rooms?.[0]?.departure ?? null;
+
+          // People — extract adults, children, babies
+          const ppl = r.people ?? r.guests ?? r.rooms?.[0]?.people
+            ?? r.guest?.number_of_guests ?? 1;
+          const adults = r.adults ?? r.rooms?.[0]?.adults ?? ppl;
+          const children = r.children ?? r.rooms?.[0]?.children ?? 0;
+          const babies = r.babies ?? r.infants ?? r.rooms?.[0]?.babies ?? r.rooms?.[0]?.infants ?? 0;
+
+          // Source — simplify
+          let src = r.source ?? r.channel ?? "Lodgify";
+          if (src.includes('Airbnb')) src = 'Airbnb';
+          else if (src.includes('Booking')) src = 'Booking.com';
+          else if (src.includes('Manual') || src.includes('Owner')) src = 'Direct';
+          else if (src.includes('Vrbo') || src.includes('HomeAway')) src = 'Vrbo';
+
+          const matchedProp = PROPERTIES.find(p => p.id == propId);
+
+          return {
+            id: r.id ?? i,
+            propertyId: propId,
+            propertyName: matchedProp ? matchedProp.name : ("Logement " + propId),
+            guestName: gName,
+            checkin: ci ? new Date(ci) : null,
+            checkout: co ? new Date(co) : null,
+            guests: ppl,
+            adults: adults,
+            children: children,
+            babies: babies,
+            source: src,
+            status: r.status || '',
+            messages: []
+          };
+        }).filter(b => b.checkin && b.checkout && !isNaN(b.checkin.getTime()) && !isNaN(b.checkout.getTime())
+          && b.propertyId && PROPERTIES.some(p => p.id == b.propertyId)
+          && b.checkout >= addDays(today, -10)); // Garder uniquement J-10 et après
+
+        bookings.sort((a, b) => a.checkin - b.checkin);
+        console.log('Parsed bookings:', bookings.length);
+        if (bookings.length > 0) {
+          console.log('Range:', fmt(bookings[0].checkin), '→', fmt(bookings[bookings.length-1].checkout));
+          // Auto-navigate calendar to the most recent booking
+          const lastBooking = bookings[bookings.length - 1];
+          // Find the nearest upcoming booking from today, or fallback to the last one
+          const upcoming = bookings.find(b => b.checkout >= today) || lastBooking;
+          currentMonth = new Date(upcoming.checkin.getFullYear(), upcoming.checkin.getMonth(), 1);
+        }
+      }
+    }
+
+    isConnected = true;
+
+    // Load shared state from server (cleaning status, notes, checklist, etc.)
+    try {
+      const stateRes = await fetch('/state');
+      if (stateRes.ok) {
+        const savedState = await stateRes.json();
+        cleaningStatus = savedState.cleaningStatus || {};
+        cleaningNotes = savedState.cleaningNotes || {};
+        checklistState = savedState.checklistState || {};
+        customTimes = savedState.customTimes || {};
+        customGuests = savedState.customGuests || {};
+        stateVersion = savedState.version || 0;
+        console.log('Shared state loaded (v' + stateVersion + ')');
+      }
+    } catch(e) { console.warn('State load failed, using empty state'); cleaningStatus = {}; }
+
+    const debugInfo = `${PROPERTIES.length} logement(s), ${bookings.length} reservations`;
+    status.className = 'api-status success';
+    status.innerHTML = `Connecte ! ${debugInfo}.`;
+    connEl.className = 'connection-status connected';
+    connEl.textContent = `Lodgify (${PROPERTIES.length} logements, ${bookings.length} resa.)`;
+
+    sessionStorage.setItem('lodgify_key', key);
+    document.getElementById('apiPanel').style.display = 'none';
+    render();
+
+    // Scan messages in background (non-blocking)
+    scanMessagesInBackground(key);
+
+  } catch (e) {
+    console.error('Lodgify error:', e);
+    status.className = 'api-status error';
+    status.textContent = e.message;
+    if (e.message.includes('Failed to fetch')) {
+      status.textContent = 'Impossible de joindre le serveur local. Verifiez que server.py est bien lance (python3 server.py).';
+    }
+    connEl.className = 'connection-status';
+    connEl.textContent = 'Erreur connexion';
+  }
+}
+
+// ===== MESSAGE SCANNING =====
+// Negative patterns that negate a keyword (e.g. "sans bébé", "pas de bébé", "no baby")
+const NEGATION_WORDS = ['sans', 'pas de', 'pas d\'', 'aucun', 'no ', 'without', 'pas besoin de', 'pas besoin d\'', 'n\'aurons pas', 'n\'avons pas', 'won\'t need', 'don\'t need'];
+
+function isNegated(text, matchIndex) {
+  // Check if any negation word appears in the 40 chars before the match
+  const before = text.substring(Math.max(0, matchIndex - 40), matchIndex).toLowerCase();
+  return NEGATION_WORDS.some(neg => before.includes(neg));
+}
+
+function analyzeMessages(messages, bookingId) {
+  const allText = messages.map(m => (m.body || m.text || m.message || '')).join(' ').toLowerCase();
+  if (!allText.trim()) return;
+
+  const alerts = {};
+
+  // Bébé / baby / nourrisson
+  const babyPatterns = [/bébé/gi, /bebe/gi, /baby/gi, /nourrisson/gi, /infant/gi, /nouveau[- ]?né/gi];
+  for (const pat of babyPatterns) {
+    let m; while ((m = pat.exec(allText)) !== null) {
+      if (!isNegated(allText, m.index)) { alerts.baby = true; break; }
+      else { alerts.noBaby = true; }
+    }
+    if (alerts.baby) break;
+  }
+
+  // Lit parapluie / cot / crib
+  const cotPatterns = [/lit parapluie/gi, /lit bébé/gi, /lit bebe/gi, /travel cot/gi, /baby cot/gi, /crib/gi];
+  for (const pat of cotPatterns) {
+    let m; while ((m = pat.exec(allText)) !== null) {
+      if (!isNegated(allText, m.index)) { alerts.cot = true; break; }
+    }
+    if (alerts.cot) break;
+  }
+
+  // Matelas gonflable / extra bed / 3e personne
+  const bedPatterns = [/matelas/gi, /gonflable/gi, /extra bed/gi, /lit d'appoint/gi, /lit suppl/gi, /3[eè]me? personne/gi, /troisième personne/gi, /3rd person/gi];
+  for (const pat of bedPatterns) {
+    let m; while ((m = pat.exec(allText)) !== null) {
+      if (!isNegated(allText, m.index)) { alerts.extraBed = true; break; }
+    }
+    if (alerts.extraBed) break;
+  }
+
+  // Enfant / children / kids
+  const childPatterns = [/enfant/gi, /child/gi, /children/gi, /kids?(?!\w)/gi, /fils/gi, /fille/gi];
+  for (const pat of childPatterns) {
+    let m; while ((m = pat.exec(allText)) !== null) {
+      if (!isNegated(allText, m.index)) { alerts.children = true; break; }
+    }
+    if (alerts.children) break;
+  }
+
+  if (Object.keys(alerts).length > 0) {
+    messageAlerts[bookingId] = alerts;
+  }
+}
+
+async function scanMessagesInBackground(apiKey) {
+  const connEl = document.getElementById('connStatus');
+  const originalText = connEl.textContent;
+  let scanned = 0;
+  const toScan = bookings.filter(b => b.checkout >= today); // Only scan upcoming
+
+  for (const b of toScan) {
+    try {
+      connEl.textContent = `Scan messages... (${++scanned}/${toScan.length})`;
+      const resUrl = `/api/v1/reservation/${b.id}/messages`;
+      const res = await fetch(resUrl, {
+        headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
+      });
+      if (res.ok) {
+        const msgs = await res.json();
+        const msgArray = Array.isArray(msgs) ? msgs : (msgs?.items || msgs?.messages || []);
+        if (msgArray.length > 0) {
+          messageCache[b.id] = msgArray;
+          b.messages = msgArray;
+          analyzeMessages(msgArray, b.id);
+        }
+      }
+    } catch(e) {
+      console.warn(`Messages scan error for ${b.id}:`, e.message);
+    }
+    // Small delay to avoid rate limiting
+    await new Promise(r => setTimeout(r, 200));
+  }
+
+  connEl.textContent = originalText;
+  render(); // Re-render with message alerts
+  console.log('Message scan complete:', Object.keys(messageAlerts).length, 'alerts found');
+}
+
+// ===== GUEST EDITING =====
+function getBookingGuests(booking) {
+  const custom = customGuests[booking.id];
+  return {
+    adults: custom?.adults ?? booking.adults,
+    children: custom?.children ?? booking.children,
+    babies: custom?.babies ?? booking.babies,
+    total: (custom?.adults ?? booking.adults) + (custom?.children ?? booking.children) + (custom?.babies ?? booking.babies)
+  };
+}
+
+function saveGuestCount(bookingId, field, value) {
+  if (!customGuests[bookingId]) {
+    const b = bookings.find(x => x.id == bookingId);
+    customGuests[bookingId] = { adults: b?.adults || 1, children: b?.children || 0, babies: b?.babies || 0 };
+  }
+  customGuests[bookingId][field] = Math.max(0, parseInt(value) || 0);
+  render();
+  scheduleSyncPush();
+}
+
+// ===== CLEANING TASKS =====
+function getCleaningTasks() {
+  const tasks = [];
+  const seen = new Set();
+  bookings.forEach(b => {
+    const dateKey = fmt(b.checkout);
+    const statusKey = b.propertyId + "-" + dateKey;
+    if (seen.has(statusKey)) return;
+    seen.add(statusKey);
+    const nextBooking = bookings.find(nb => nb.propertyId === b.propertyId && fmt(nb.checkin) === dateKey && nb.id !== b.id);
+    const gOut = getBookingGuests(b);
+    const gIn = nextBooking ? getBookingGuests(nextBooking) : null;
+    const nextAlerts = nextBooking ? (messageAlerts[nextBooking.id] || {}) : {};
+    tasks.push({
+      id: statusKey, propertyId: b.propertyId, propertyName: b.propertyName,
+      date: new Date(b.checkout), checkoutTime: customTimes[statusKey]?.checkout || "11:00",
+      nextCheckinTime: nextBooking ? (customTimes[statusKey]?.checkin || "17:00") : null,
+      nextGuest: nextBooking ? nextBooking.guestName : null,
+      nextGuests: gIn ? gIn.total : null,
+      nextAdults: gIn ? gIn.adults : null,
+      nextChildren: gIn ? gIn.children : null,
+      nextBabies: gIn ? gIn.babies : null,
+      nextBookingId: nextBooking ? nextBooking.id : null,
+      nextAlerts: nextAlerts,
+      guestOut: b.guestName, guestsOut: gOut.total,
+      adultsOut: gOut.adults, childrenOut: gOut.children, babiesOut: gOut.babies,
+      bookingOutId: b.id,
+      outAlerts: messageAlerts[b.id] || {},
+      source: b.source,
+      done: !!cleaningStatus[statusKey],
+      notes: cleaningNotes[statusKey] || "",
+      messages: b.messages || [], booking: b
+    });
+  });
+  tasks.sort((a, b) => a.date - b.date);
+  return tasks;
+}
+
+// ===== RENDER =====
+function renderStats() {
+  const tasks = getCleaningTasks();
+  const todayStr = fmt(today);
+  const todayTasks = tasks.filter(t => fmt(t.date) === todayStr);
+  const weekEnd = addDays(today, 7);
+  const weekTasks = tasks.filter(t => t.date >= today && t.date <= weekEnd);
+  const doneTasks = weekTasks.filter(t => t.done);
+  const pendingToday = todayTasks.filter(t => !t.done);
+  document.getElementById('statsBar').innerHTML =
+    `<div class="stat-card"><div class="stat-value stat-today">${todayTasks.length}</div><div class="stat-label">Menages aujourd'hui</div></div>
+     <div class="stat-card"><div class="stat-value stat-week">${weekTasks.length}</div><div class="stat-label">Cette semaine</div></div>
+     <div class="stat-card"><div class="stat-value stat-done">${doneTasks.length}</div><div class="stat-label">Termines</div></div>
+     <div class="stat-card"><div class="stat-value stat-pending">${pendingToday.length}</div><div class="stat-label">En attente</div></div>`;
+}
+
+function renderLegend() {
+  document.getElementById('legend').innerHTML = PROPERTIES.map(p =>
+    `<div class="legend-item"><div class="legend-dot" style="background:${p.color}"></div>${p.name}</div>`
+  ).join('') +
+    `<div class="legend-item"><div class="legend-dot" style="background:#27ae60"></div>Fait</div>`;
+}
+
+function renderCalendar() {
+  const year = currentMonth.getFullYear(), month = currentMonth.getMonth();
+  const months = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
+  document.getElementById('monthTitle').textContent = months[month] + " " + year;
+
+  let startDay = new Date(year, month, 1).getDay();
+  if (startDay === 0) startDay = 7; startDay--;
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+  const tasks = getCleaningTasks();
+  const tasksByDate = {};
+  tasks.forEach(t => { const d = fmt(t.date); if (!tasksByDate[d]) tasksByDate[d] = []; tasksByDate[d].push(t); });
+
+  // Build occupancy map: for each date, which properties are occupied and how (checkin/checkout/mid)
+  const occupancy = {};
+  bookings.forEach(b => {
+    const prop = PROPERTIES.find(p => p.id == b.propertyId);
+    if (!prop) return;
+    const ciStr = fmt(b.checkin);
+    const coStr = fmt(b.checkout);
+    // Iterate each day from checkin to checkout
+    let d = new Date(b.checkin);
+    while (d <= b.checkout) {
+      const ds = fmt(d);
+      if (!occupancy[ds]) occupancy[ds] = [];
+      let type = 'mid';
+      if (ds === ciStr && ds === coStr) type = 'same'; // same-day (rare)
+      else if (ds === ciStr) type = 'checkin';
+      else if (ds === coStr) type = 'checkout';
+      // Avoid duplicates for same property on same date
+      if (!occupancy[ds].find(o => o.propId === b.propertyId && o.type === type)) {
+        occupancy[ds].push({ propId: b.propertyId, color: prop.color, type });
+      }
+      d = addDays(d, 1);
+    }
+  });
+
+  const days = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
+  let html = days.map(d => `<div class="cal-header">${d}</div>`).join('');
+  const totalCells = Math.ceil((startDay + daysInMonth) / 7) * 7;
+
+  for (let i = 0; i < totalCells; i++) {
+    const dayNum = i - startDay + 1;
+    const isCur = dayNum >= 1 && dayNum <= daysInMonth;
+    const date = new Date(year, month, dayNum);
+    const dateStr = fmt(date);
+    const isToday = dateStr === fmt(today);
+    let cls = "cal-day";
+    if (!isCur) cls += " other-month";
+    if (isToday) cls += " today";
+
+    // Each property gets a fixed-height lane: bar + optional cleaning
+    // Lane height is constant so bars stay aligned across days
+    let content = "";
+    if (isCur) {
+      const dayOcc = occupancy[dateStr] || [];
+      const dayTasks = tasksByDate[dateStr] || [];
+      // Dynamic: works with any number of properties
+      PROPERTIES.forEach(p => {
+        let lane = '';
+        // Duration bar (or invisible placeholder)
+        const o = dayOcc.find(x => x.propId === p.id);
+        if (!o) {
+          lane += `<div class="cal-bar" style="visibility:hidden;"></div>`;
+        } else {
+          let style = `background:${o.color};`;
+          if (o.type === 'checkin') style += 'margin-left:70%;width:30%;border-radius:4px 0 0 4px;';
+          else if (o.type === 'checkout') style += 'width:30%;border-radius:0 4px 4px 0;';
+          else if (o.type === 'same') style += 'margin-left:35%;width:30%;border-radius:4px;';
+          else style += 'width:100%;border-radius:0;';
+          lane += `<div class="cal-bar" style="${style}"></div>`;
+        }
+        // Cleaning task (if departure day)
+        const task = dayTasks.find(t => t.propertyId === p.id);
+        if (task) {
+          const prop = PROPERTIES.find(pp => pp.id === p.id) || PROPERTIES[0];
+          const label = getDisplayName(task.propertyName);
+          const prog = getChecklistProgress(task.id);
+          const bg = task.done ? '#27ae60' : (prog.done > 0 ? '#e8a838' : prop.color);
+          const progText = prog.done > 0 && !task.done ? ` (${prog.done}/${prog.total})` : '';
+          lane += `<div class="cal-event cleaning ${task.done ? 'done' : ''}" title="${label}${progText}" style="background:${bg} !important" onclick="event.stopPropagation();openDetail('${task.id}')">
+            <label class="cal-check" onclick="event.stopPropagation()">
+              <input type="checkbox" ${task.done ? 'checked' : ''} onchange="event.stopPropagation();toggleTask('${task.id}', this.checked)" />
+              <span class="cal-check-label">${label}${progText}</span>
+            </label>
+          </div>`;
+        }
+        content += `<div class="cal-lane">${lane}</div>`;
+      });
+    }
+
+    html += `<div class="${cls}" onclick="openDayDetail('${dateStr}')">
+      <div class="cal-day-num">${isCur ? dayNum : ''}</div><div class="cal-bars">${content}</div></div>`;
+  }
+  document.getElementById('calendar').innerHTML = html;
+}
+
+function renderList() {
+  const tasks = getCleaningTasks();
+  let filtered = tasks;
+  if (filterProperty !== 'all') filtered = filtered.filter(t => t.propertyId == filterProperty);
+  if (filterStatus === 'pending') filtered = filtered.filter(t => !t.done);
+  if (filterStatus === 'done') filtered = filtered.filter(t => t.done);
+
+  const range = [addDays(today, -5), addDays(today, 45)];
+  filtered = filtered.filter(t => t.date >= range[0] && t.date <= range[1]);
+
+  document.getElementById('filters').innerHTML =
+    `<div class="filter-chip ${filterProperty === 'all' ? 'active' : ''}" onclick="setFilter('prop','all')">Tous</div>` +
+    PROPERTIES.map(p => {
+      const short = p.name.split(' ').slice(0, 2).join(' ');
+      return `<div class="filter-chip ${filterProperty == p.id ? 'active' : ''}" onclick="setFilter('prop',${p.id})">${short}</div>`;
+    }).join('') +
+    `<span style="width:12px"></span>
+     <div class="filter-chip ${filterStatus === 'all' ? 'active' : ''}" onclick="setFilter('status','all')">Tous</div>
+     <div class="filter-chip ${filterStatus === 'pending' ? 'active' : ''}" onclick="setFilter('status','pending')">A faire</div>
+     <div class="filter-chip ${filterStatus === 'done' ? 'active' : ''}" onclick="setFilter('status','done')">Faits</div>`;
+
+  if (filtered.length === 0) {
+    document.getElementById('taskList').innerHTML = '<div class="empty-state"><h3>Aucun menage trouve</h3><p>Modifiez les filtres ou connectez Lodgify pour voir vos reservations.</p></div>';
+    return;
+  }
+
+  const todayStr = fmt(today);
+  document.getElementById('taskList').innerHTML = filtered.map(t => {
+    const pi = PROPERTIES.findIndex(p => p.id === t.propertyId);
+    const prop = PROPERTIES[pi] || PROPERTIES[0];
+    const dStr = fmt(t.date);
+    const isToday = dStr === todayStr;
+    const isPast = t.date < today && !isToday;
+    let badge = '';
+    if (t.done) badge = '<span class="task-badge badge-done">Fait</span>';
+    else if (isPast) badge = '<span class="task-badge badge-urgent">En retard</span>';
+    else if (isToday) badge = '<span class="task-badge badge-today">Aujourd\'hui</span>';
+    else badge = '<span class="task-badge badge-upcoming">' + t.date.toLocaleDateString('fr-FR', {day:'numeric',month:'short'}) + '</span>';
+
+    return `<div class="task-card ${t.done ? 'done' : ''}" onclick="openDetail('${t.id}')">
+      <div class="task-check" onclick="event.stopPropagation();toggleDone('${t.id}')"><span class="task-check-mark">✓</span></div>
+      <div class="task-info">
+        <div class="task-property"><div class="task-property-dot" style="background:${prop.color}"></div>${t.propertyName} ${badge}</div>
+        <div class="task-details">
+          <span>${t.date.toLocaleDateString('fr-FR', {weekday:'short', day:'numeric', month:'short'})}</span>
+          <span>Depart ${t.checkoutTime}${t.nextCheckinTime ? ' → Arrivee ' + t.nextCheckinTime : ''}</span>
+          <span>${t.guestOut} (${formatGuestDetail(t.guestsOut, t.adultsOut, t.childrenOut, t.babiesOut)})</span>
+          ${t.nextBabies > 0 ? '<span style="color:#e67e22">Bebe</span>' : ''}
+          ${t.nextGuests > 2 && t.nextBabies === 0 ? '<span style="color:#e67e22">3e pers.</span>' : ''}
+          ${t.nextGuest ? '<span>Suivant: ' + t.nextGuest + '</span>' : '<span style="color:#27ae60">Libre</span>'}
+        </div>
+      </div></div>`;
+  }).join('');
+}
+
+function getChecklistProgress(taskId) {
+  const state = checklistState[taskId] || {};
+  const done = CHECKLIST_ITEMS.filter((_, i) => state[i]).length;
+  return { done, total: CHECKLIST_ITEMS.length, pct: Math.round((done / CHECKLIST_ITEMS.length) * 100) };
+}
+
+function toggleCheckItem(taskId, idx) {
+  if (!checklistState[taskId]) checklistState[taskId] = {};
+  checklistState[taskId][idx] = !checklistState[taskId][idx];
+  // Auto-mark task as done when all items checked
+  const prog = getChecklistProgress(taskId);
+  if (prog.done === prog.total) cleaningStatus[taskId] = true;
+  else if (prog.done === 0) cleaningStatus[taskId] = false;
+  // Re-render side panel without closing
+  openDetail(taskId, true);
+  renderCalendar();
+  renderStats();
+  scheduleSyncPush();
+}
+
+function renderChecklist(taskId) {
+  const state = checklistState[taskId] || {};
+  const prog = getChecklistProgress(taskId);
+  let html = `
+    <div class="checklist-progress">
+      <div class="checklist-bar"><div class="checklist-bar-fill" style="width:${prog.pct}%"></div></div>
+      <div class="checklist-count">${prog.done}/${prog.total}</div>
+    </div>
+    <ul class="checklist">`;
+  CHECKLIST_ITEMS.forEach((item, i) => {
+    const checked = !!state[i];
+    html += `<li class="checklist-item ${checked ? 'checked' : ''}" onclick="toggleCheckItem('${taskId}', ${i})">
+      <input type="checkbox" ${checked ? 'checked' : ''} onclick="event.stopPropagation(); toggleCheckItem('${taskId}', ${i})" />
+      <label>${item.icon} ${item.label}</label>
+    </li>`;
+  });
+  html += '</ul>';
+  return html;
+}
+
+let currentOpenTaskId = null;
+function reopenCurrentDetail() { if (currentOpenTaskId) openDetail(currentOpenTaskId, true); }
+
+function openDetail(taskId, keepOpen) {
+  currentOpenTaskId = taskId;
+  const t = getCleaningTasks().find(x => x.id === taskId);
+  if (!t) return;
+  const pi = PROPERTIES.findIndex(p => p.id === t.propertyId);
+  const prop = PROPERTIES[pi] || PROPERTIES[0];
+  const label = getDisplayName(t.propertyName);
+
+  document.getElementById('detailPanel').innerHTML = `
+    <button class="detail-close" onclick="closeDetail()">✕</button>
+    <div class="detail-title"><div class="task-property-dot" style="background:${prop.color};width:14px;height:14px;border-radius:4px"></div>${label}</div>
+    <div class="detail-section">
+      <p style="font-size:14px;color:#555;">${t.date.toLocaleDateString('fr-FR', {weekday:'long', day:'numeric', month:'long', year:'numeric'})}</p>
+      <div style="display:flex;gap:12px;margin-top:8px;flex-wrap:wrap;">
+        <div style="flex:1;min-width:120px;">
+          <label style="font-size:11px;color:#999;display:block;margin-bottom:2px;">Depart client</label>
+          <input type="time" value="${t.checkoutTime}" onchange="saveTime('${t.id}','checkout',this.value)" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;width:100%;" />
+        </div>
+        ${t.nextCheckinTime ? `<div style="flex:1;min-width:120px;">
+          <label style="font-size:11px;color:#999;display:block;margin-bottom:2px;">Arrivee suivante</label>
+          <input type="time" value="${t.nextCheckinTime}" onchange="saveTime('${t.id}','checkin',this.value)" style="padding:6px 10px;border:1px solid #ddd;border-radius:6px;font-size:14px;width:100%;" />
+        </div>` : ''}
+      </div>
+    </div>
+
+    <div class="detail-section"><h4>Client sortant — ${t.guestOut}</h4>
+      ${renderGuestEditor(t.bookingOutId, t.adultsOut, t.childrenOut, t.babiesOut)}
+      ${renderMessageAlertBadges(t.outAlerts, 'sortant')}
+    </div>
+
+    ${t.nextGuest ? `<div class="detail-section"><h4>Prochain client — ${t.nextGuest}</h4>
+      ${renderGuestEditor(t.nextBookingId, t.nextAdults, t.nextChildren, t.nextBabies)}
+      ${renderExtrasAlert(t.propertyId, t.nextGuests, t.nextAdults, t.nextChildren, t.nextBabies)}
+      ${renderMessageAlertBadges(t.nextAlerts, 'entrant')}
+    </div>` : ''}
+
+    <div class="detail-section">
+      <h4>Liste des taches</h4>
+      ${renderChecklist(t.id)}
+    </div>
+
+    <div class="detail-section"><h4>Notes</h4>
+      <textarea class="detail-notes" placeholder="Instructions specifiques..." onchange="saveNote('${t.id}', this.value)">${t.notes}</textarea></div>
+
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn ${t.done ? 'btn-danger' : 'btn-success'}" onclick="toggleDone('${t.id}');openDetail('${t.id}', true)">
+        ${t.done ? 'Remettre a faire' : 'Tout marquer fait'}</button>
+    </div>`;
+  if (!keepOpen) document.getElementById('detailOverlay').classList.add('show');
+}
+
+function openDayDetail(dateStr) {
+  const tasks = getCleaningTasks().filter(t => fmt(t.date) === dateStr);
+  if (tasks.length === 1) { openDetail(tasks[0].id); return; }
+  if (tasks.length === 0) return;
+  const panel = document.getElementById('detailPanel');
+  panel.innerHTML = `
+    <button class="detail-close" onclick="closeDetail()">✕</button>
+    <div class="detail-title">Menages du ${new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', {day:'numeric', month:'long'})}</div>
+    ${tasks.map(t => {
+      const pi = PROPERTIES.findIndex(p => p.id === t.propertyId);
+      const prop = PROPERTIES[pi] || PROPERTIES[0];
+      return `<div style="padding:12px;border:1px solid #eee;border-radius:10px;margin-bottom:8px;cursor:pointer;border-left:4px solid ${prop.color};transition:all 0.15s" onmouseover="this.style.boxShadow='0 2px 8px rgba(0,0,0,0.1)'" onmouseout="this.style.boxShadow='none'" onclick="openDetail('${t.id}')">
+        <strong>${t.propertyName}</strong> ${t.done ? '<span class="task-badge badge-done">Fait</span>' : '<span class="task-badge badge-today">A faire</span>'}<br>
+        <span style="font-size:12px;color:#666">Depart ${t.checkoutTime} — ${t.guestOut} (${t.guestsOut} pers.)</span>
+      </div>`;
+    }).join('')}`;
+  document.getElementById('detailOverlay').classList.add('show');
+}
+
+// ===== ACTIONS =====
+function closeDetail() { currentOpenTaskId = null; document.getElementById('detailOverlay').classList.remove('show'); }
+function toggleDone(id) {
+  const wasDone = cleaningStatus[id];
+  cleaningStatus[id] = !wasDone;
+  if (!wasDone) {
+    checklistState[id] = {};
+    CHECKLIST_ITEMS.forEach((_, i) => { checklistState[id][i] = true; });
+  } else {
+    checklistState[id] = {};
+  }
+  render();
+  scheduleSyncPush();
+}
+function toggleTask(id, checked) {
+  cleaningStatus[id] = checked;
+  if (checked) {
+    checklistState[id] = {};
+    CHECKLIST_ITEMS.forEach((_, i) => { checklistState[id][i] = true; });
+  } else {
+    checklistState[id] = {};
+  }
+  render();
+  scheduleSyncPush();
+}
+function saveNote(id, t) { cleaningNotes[id] = t; scheduleSyncPush(); }
+function saveTime(id, type, val) {
+  if (!customTimes[id]) customTimes[id] = {};
+  customTimes[id][type] = val;
+  renderList();
+  scheduleSyncPush();
+}
+function switchView(v, el) {
+  currentView = v;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('calendarView').style.display = v === 'calendar' ? '' : 'none';
+  document.getElementById('listView').style.display = v === 'list' ? '' : 'none';
+  render();
+}
+function changeMonth(d) { currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + d, 1); renderCalendar(); }
+function setFilter(type, val) { if (type === 'prop') filterProperty = val; if (type === 'status') filterStatus = val; renderList(); }
+function toggleApiPanel() { const p = document.getElementById('apiPanel'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
+
+// ===== ICS EXPORT =====
+function exportICS() {
+  const tasks = getCleaningTasks().filter(t => t.date >= addDays(today, -1));
+  if (tasks.length === 0) { alert('Aucun menage a exporter.'); return; }
+
+  let ics = [
+    "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Planning Menages//FR",
+    "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+    "X-WR-CALNAME:Menages Locations", "X-WR-TIMEZONE:Europe/Paris"
+  ].join("\r\n") + "\r\n";
+
+  tasks.forEach(t => {
+    const s = new Date(t.date); s.setHours(10, 0, 0);
+    const e = new Date(t.date); e.setHours(t.nextCheckinTime ? 14 : 13, 0, 0);
+    const dtFmt = d => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    let desc = `Depart: ${t.guestOut} (${t.guestsOut} pers.)`;
+    if (t.nextGuest) desc += `\\nArrivee: ${t.nextGuest} (${t.nextGuests} pers.) a ${t.nextCheckinTime}`;
+    else desc += "\\nPas d'arrivee prevue";
+    if (t.notes) desc += "\\nNotes: " + t.notes.replace(/\n/g, '\\n');
+
+    ics += `BEGIN:VEVENT\r\nUID:${t.id}@planning-menages\r\nDTSTART:${dtFmt(s)}\r\nDTEND:${dtFmt(e)}\r\nSUMMARY:${t.propertyName}\r\nDESCRIPTION:${desc}\r\nBEGIN:VALARM\r\nTRIGGER:-PT30M\r\nACTION:DISPLAY\r\nDESCRIPTION:Menage dans 30 min\r\nEND:VALARM\r\nEND:VEVENT\r\n`;
+  });
+  ics += "END:VCALENDAR\r\n";
+
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+  a.download = 'planning-menages.ics';
+  a.click();
+}
+
+// ===== DEBUG =====
+function showDebug(apiDump) {
+  let el = document.getElementById('debugPanel');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'debugPanel';
+    el.style.cssText = 'background:#fffde7;border:2px solid #f9a825;border-radius:10px;padding:14px;margin:16px 0;font-size:12px;font-family:monospace;max-height:500px;overflow:auto;';
+    document.querySelector('.stats').after(el);
+  }
+  const tasks = getCleaningTasks();
+  const sample = bookings.slice(0, 2).map(b => ({
+    id: b.id, property: b.propertyName, propertyId: b.propertyId,
+    guest: b.guestName, checkinFmt: b.checkin ? fmt(b.checkin) : 'NULL',
+    checkoutFmt: b.checkout ? fmt(b.checkout) : 'NULL',
+  }));
+  el.innerHTML = `
+    <strong>DEBUG:</strong><br><br>
+    <strong>PROPERTIES:</strong> ${PROPERTIES.map(p => `${p.id}="${p.name}"`).join(', ')}<br>
+    <strong>BOOKINGS:</strong> ${bookings.length} | <strong>TASKS:</strong> ${tasks.length}<br>
+    <strong>Month:</strong> ${fmt(currentMonth)}<br><br>
+    <strong>API RESPONSE:</strong><br>
+    <pre style="white-space:pre-wrap;font-size:11px;background:#fff;padding:8px;border-radius:6px;border:1px solid #ddd;max-height:300px;overflow:auto;">${apiDump || 'Not loaded yet'}</pre>
+    <br><strong>First 2 parsed bookings:</strong><br>
+    <pre style="white-space:pre-wrap;font-size:11px;">${JSON.stringify(sample, null, 2)}</pre>
+  `;
+}
+
+// ===== INIT =====
+bookings = [];
+function render() { renderStats(); renderLegend(); renderCalendar(); renderList(); }
+render();
+
+// Auto-connect: try saved key or pre-configured key
+const savedKey = sessionStorage.getItem('lodgify_key') || 'wE+20De2+LfCRgWrBnqWm55IrW/Xkae0rzmTkHYAEUasoIxxJAA+puWgyr3XO0MA';
+if (savedKey) {
+  document.getElementById('apiKeyInput').value = savedKey;
+  fetchLodgifyData();
+}
+
+// Auto-refresh every 10 minutes
+setInterval(() => {
+  console.log('Auto-refresh...');
+  const key = sessionStorage.getItem('lodgify_key');
+  if (key) fetchLodgifyData();
+}, 10 * 60 * 1000);
+</script>
+</body>
+</html>
