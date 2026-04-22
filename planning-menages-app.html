@@ -444,7 +444,9 @@ async function fetchLodgifyData() {
     // Only load from 10 days before today onwards (no need for old history)
     status.textContent = 'Chargement des reservations...';
 
-    const dateFrom = fmt(addDays(today, -10)); // 10 jours avant aujourd'hui
+    // Charger les sejours dont l'arrivee est a partir de J-30 pour capturer
+    // les sejours en cours (arrives avant aujourd'hui mais qui partent apres)
+    const dateFrom = fmt(addDays(today, -30));
 
     let allRawItems = [];
     let rawApiDump = '';
@@ -485,42 +487,6 @@ async function fetchLodgifyData() {
         }
 
         if (newCount === 0) break;
-      }
-
-      // Fallback: if date filter returned nothing, try without filter but still paginate
-      if (allRawItems.length === 0) {
-        seenIds.clear();
-        for (let offset = 0; offset < 5000; offset += 10) {
-          const resUrl = `/api/v1/reservation?offset=${offset}&limit=50`;
-          const resRes = await fetch(resUrl, {
-            headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-          });
-          if (!resRes.ok) break;
-          const json = await resRes.json();
-          let pageItems = Array.isArray(json) ? json : [];
-          if (!pageItems.length && json && typeof json === 'object') {
-            for (const k of Object.keys(json)) {
-              if (Array.isArray(json[k])) { pageItems = json[k]; break; }
-            }
-          }
-          if (pageItems.length === 0) break;
-
-          let newCount = 0;
-          for (const item of pageItems) {
-            if (!seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              allRawItems.push(item);
-              newCount++;
-            }
-          }
-          status.textContent = `${allRawItems.length} reservations (sans filtre)...`;
-
-          if (offset === 0) {
-            paginationMethod = `offset sans filtre (${pageItems.length}/page)`;
-            rawApiDump = `First item ALL KEYS:\n${Object.keys(pageItems[0]).join(', ')}\n\nFirst item FULL:\n${JSON.stringify(pageItems[0], null, 2)}`;
-          }
-          if (newCount === 0) break;
-        }
       }
 
       rawApiDump = `Total: ${allRawItems.length} reservations (methode: ${paginationMethod})\n\n` + rawApiDump;
@@ -589,7 +555,7 @@ async function fetchLodgifyData() {
           };
         }).filter(b => b.checkin && b.checkout && !isNaN(b.checkin.getTime()) && !isNaN(b.checkout.getTime())
           && b.propertyId && PROPERTIES.some(p => p.id == b.propertyId)
-          && b.checkout >= addDays(today, -10)); // Garder uniquement J-10 et après
+          && b.checkout >= today); // Garder uniquement a partir d'aujourd'hui
 
         bookings.sort((a, b) => a.checkin - b.checkin);
         console.log('Parsed bookings:', bookings.length);
