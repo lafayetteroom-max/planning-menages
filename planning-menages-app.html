@@ -444,9 +444,8 @@ async function fetchLodgifyData() {
     // Only load from 10 days before today onwards (no need for old history)
     status.textContent = 'Chargement des reservations...';
 
-    // Charger les sejours dont l'arrivee est a partir de J-30 pour capturer
-    // les sejours en cours (arrives avant aujourd'hui mais qui partent apres)
-    const dateFrom = fmt(addDays(today, -30));
+    // Charger les sejours arrives depuis J-5 max (pour capter les sejours en cours)
+    const dateFrom = fmt(addDays(today, -5));
 
     let allRawItems = [];
     let rawApiDump = '';
@@ -555,7 +554,7 @@ async function fetchLodgifyData() {
           };
         }).filter(b => b.checkin && b.checkout && !isNaN(b.checkin.getTime()) && !isNaN(b.checkout.getTime())
           && b.propertyId && PROPERTIES.some(p => p.id == b.propertyId)
-          && b.checkout >= today
+          && b.checkout >= addDays(today, -5)
           && !/cancel|decline|annul/i.test(b.status)); // Exclure annulees
 
         bookings.sort((a, b) => a.checkin - b.checkin);
@@ -802,11 +801,28 @@ function renderCalendar() {
 
   // Build occupancy map: for each date, which properties are occupied and how (checkin/checkout/mid)
   const occupancy = {};
+  // Build checkin alerts map: for each date+property, equipment warnings
+  const checkinAlerts = {}; // { "2026-04-14": { propId: { baby: true, extraBed: true } } }
   bookings.forEach(b => {
     const prop = PROPERTIES.find(p => p.id == b.propertyId);
     if (!prop) return;
     const ciStr = fmt(b.checkin);
     const coStr = fmt(b.checkout);
+
+    // Check equipment needs on checkin day
+    const g = getBookingGuests(b);
+    const extras = prop.extras || [];
+    const needBaby = g.babies > 0 && extras.some(e => e.toLowerCase().includes('parapluie'));
+    const needBed = (g.total > 2 || g.adults > 2) && extras.some(e => e.toLowerCase().includes('matelas'));
+    // Also check message alerts
+    const msgAl = messageAlerts[b.id] || {};
+    const hasBabyAlert = needBaby || msgAl.baby || msgAl.cot;
+    const hasBedAlert = needBed || msgAl.extraBed;
+    if (hasBabyAlert || hasBedAlert) {
+      if (!checkinAlerts[ciStr]) checkinAlerts[ciStr] = {};
+      checkinAlerts[ciStr][b.propertyId] = { baby: hasBabyAlert, bed: hasBedAlert, propName: prop.name, color: prop.color };
+    }
+
     // Iterate each day from checkin to checkout
     let d = new Date(b.checkin);
     while (d <= b.checkout) {
@@ -885,6 +901,20 @@ function renderCalendar() {
         }
         content += `<div class="cal-lane">${lane}</div>`;
       });
+      // Equipment warnings on checkin days
+      const dayAlerts = checkinAlerts[dateStr];
+      if (dayAlerts) {
+        Object.keys(dayAlerts).forEach(pid => {
+          const al = dayAlerts[pid];
+          const shortName = al.propName.replace(/royal\s*/i, '').trim();
+          let icons = '';
+          if (al.baby) icons += '🍼';
+          if (al.bed) icons += '🛏️';
+          if (icons) {
+            content += `<div style="font-size:9px;line-height:1.2;padding:1px 3px;border-radius:3px;background:${al.color}22;border-left:2px solid ${al.color};margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${shortName}: ${al.baby ? 'Lit bébé' : ''}${al.baby && al.bed ? ' + ' : ''}${al.bed ? 'Matelas' : ''}">${icons} ${shortName}</div>`;
+          }
+        });
+      }
     }
 
     html += `<div class="${cls}" onclick="openDayDetail('${dateStr}')">
