@@ -158,17 +158,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
   </div>
   <div class="header-actions">
     <button class="btn btn-outline" onclick="exportICS()">Export .ics</button>
-    <button class="btn btn-primary" onclick="toggleApiPanel()">Connecter Lodgify</button>
   </div>
 </div>
 
-<div id="apiPanel" class="api-section">
-  <h3>Connexion a Lodgify</h3>
-  <p>Collez votre cle API pour charger vos vraies reservations. La cle est envoyee uniquement au serveur local (localhost), jamais a un tiers.</p>
-  <div class="api-input-row">
-    <input type="password" id="apiKeyInput" class="api-input" placeholder="Votre cle API Lodgify..." />
-    <button class="btn btn-primary" onclick="fetchLodgifyData()">Connecter</button>
-  </div>
+<div id="apiPanel" style="display:none;">
   <div id="apiStatus"></div>
 </div>
 
@@ -399,13 +392,14 @@ function renderExtrasAlert(propertyId, total, adults, children, babies) {
 }
 
 // ===== API =====
+const LODGIFY_API_KEY = 'wE+20De2+LfCRgWrBnqWm55IrW/Xkae0rzmTkHYAEUasoIxxJAA+puWgyr3XO0MA';
+
 async function fetchLodgifyData() {
-  const key = document.getElementById('apiKeyInput').value.trim();
-  if (!key) return;
+  const key = LODGIFY_API_KEY;
   const status = document.getElementById('apiStatus');
   const connEl = document.getElementById('connStatus');
   status.className = 'api-status loading';
-  status.textContent = 'Connexion a Lodgify via le serveur local...';
+  status.textContent = 'Connexion a Lodgify...';
   connEl.className = 'connection-status loading';
   connEl.textContent = 'Connexion...';
 
@@ -614,8 +608,6 @@ async function fetchLodgifyData() {
     connEl.className = 'connection-status connected';
     connEl.textContent = `Lodgify (${PROPERTIES.length} logements, ${bookings.length} resa.)`;
 
-    sessionStorage.setItem('lodgify_key', key);
-    document.getElementById('apiPanel').style.display = 'none';
     render();
 
     // Scan messages in background (non-blocking)
@@ -1301,7 +1293,6 @@ function setCalMode(mode) {
   renderCalendar();
 }
 function setFilter(type, val) { if (type === 'prop') filterProperty = val; if (type === 'status') filterStatus = val; renderList(); }
-function toggleApiPanel() { const p = document.getElementById('apiPanel'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
 
 // ===== ICS EXPORT =====
 function exportICS() {
@@ -1365,19 +1356,11 @@ bookings = [];
 function render() { renderStats(); renderLegend(); renderCalendar(); renderList(); }
 render();
 
-// Auto-connect: try saved key or pre-configured key
-const savedKey = sessionStorage.getItem('lodgify_key') || 'wE+20De2+LfCRgWrBnqWm55IrW/Xkae0rzmTkHYAEUasoIxxJAA+puWgyr3XO0MA';
-if (savedKey) {
-  document.getElementById('apiKeyInput').value = savedKey;
-  fetchLodgifyData();
-}
+// Auto-connect au chargement
+fetchLodgifyData();
 
-// Auto-refresh every 10 minutes
-setInterval(() => {
-  console.log('Auto-refresh...');
-  const key = sessionStorage.getItem('lodgify_key');
-  if (key) fetchLodgifyData();
-}, 10 * 60 * 1000);
+// Auto-refresh toutes les 10 minutes
+setInterval(() => { fetchLodgifyData(); }, 10 * 60 * 1000);
 </script>
 </body>
 </html>
