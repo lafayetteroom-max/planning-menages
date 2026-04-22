@@ -555,7 +555,8 @@ async function fetchLodgifyData() {
           };
         }).filter(b => b.checkin && b.checkout && !isNaN(b.checkin.getTime()) && !isNaN(b.checkout.getTime())
           && b.propertyId && PROPERTIES.some(p => p.id == b.propertyId)
-          && b.checkout >= today); // Garder uniquement a partir d'aujourd'hui
+          && b.checkout >= today
+          && !/cancel|decline|annul/i.test(b.status)); // Exclure annulees
 
         bookings.sort((a, b) => a.checkin - b.checkin);
         console.log('Parsed bookings:', bookings.length);
@@ -847,20 +848,25 @@ function renderCalendar() {
       PROPERTIES.forEach(p => {
         let lane = '';
         // Duration bar (or invisible placeholder)
+        // Priorite: checkout/checkin > mid (evite qu'une resa annulee/double ecrase le type)
         const oAll = dayOcc.filter(x => x.propId === p.id);
+        const hasCO = oAll.some(x => x.type === 'checkout');
+        const hasCI = oAll.some(x => x.type === 'checkin');
+        const hasSame = oAll.some(x => x.type === 'same');
         if (oAll.length === 0) {
           lane += `<div class="cal-bar" style="visibility:hidden;"></div>`;
-        } else if (oAll.some(x => x.type === 'checkout') && oAll.some(x => x.type === 'checkin')) {
-          // Turnover day: checkout (left 30%) + checkin (right 30%) on same line
+        } else if (hasCO && hasCI) {
+          // Jour de rotation: depart (30% gauche) + arrivee (30% droite)
           lane += `<div class="cal-bar" style="display:flex;"><div style="width:30%;background:${p.color};border-radius:0 4px 4px 0;height:100%;"></div><div style="flex:1;"></div><div style="width:30%;background:${p.color};border-radius:4px 0 0 4px;height:100%;"></div></div>`;
+        } else if (hasCO) {
+          lane += `<div class="cal-bar" style="background:${p.color};width:30%;border-radius:0 4px 4px 0;"></div>`;
+        } else if (hasCI) {
+          lane += `<div class="cal-bar" style="background:${p.color};margin-left:70%;width:30%;border-radius:4px 0 0 4px;"></div>`;
+        } else if (hasSame) {
+          lane += `<div class="cal-bar" style="background:${p.color};margin-left:35%;width:30%;border-radius:4px;"></div>`;
         } else {
-          const o = oAll[0];
-          let style = `background:${o.color};`;
-          if (o.type === 'checkin') style += 'margin-left:70%;width:30%;border-radius:4px 0 0 4px;';
-          else if (o.type === 'checkout') style += 'width:30%;border-radius:0 4px 4px 0;';
-          else if (o.type === 'same') style += 'margin-left:35%;width:30%;border-radius:4px;';
-          else style += 'width:100%;border-radius:0;';
-          lane += `<div class="cal-bar" style="${style}"></div>`;
+          // mid-stay: barre complete
+          lane += `<div class="cal-bar" style="background:${p.color};width:100%;border-radius:0;"></div>`;
         }
         // Cleaning task (if departure day)
         const task = dayTasks.find(t => t.propertyId === p.id);
