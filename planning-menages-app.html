@@ -801,27 +801,11 @@ function renderCalendar() {
 
   // Build occupancy map: for each date, which properties are occupied and how (checkin/checkout/mid)
   const occupancy = {};
-  // Build checkin alerts map: for each date+property, equipment warnings
-  const checkinAlerts = {}; // { "2026-04-14": { propId: { baby: true, extraBed: true } } }
   bookings.forEach(b => {
     const prop = PROPERTIES.find(p => p.id == b.propertyId);
     if (!prop) return;
     const ciStr = fmt(b.checkin);
     const coStr = fmt(b.checkout);
-
-    // Check equipment needs on checkin day
-    const g = getBookingGuests(b);
-    const extras = prop.extras || [];
-    const needBaby = g.babies > 0 && extras.some(e => e.toLowerCase().includes('parapluie'));
-    const needBed = (g.total > 2 || g.adults > 2) && extras.some(e => e.toLowerCase().includes('matelas'));
-    // Also check message alerts
-    const msgAl = messageAlerts[b.id] || {};
-    const hasBabyAlert = needBaby || msgAl.baby || msgAl.cot;
-    const hasBedAlert = needBed || msgAl.extraBed;
-    if (hasBabyAlert || hasBedAlert) {
-      if (!checkinAlerts[ciStr]) checkinAlerts[ciStr] = {};
-      checkinAlerts[ciStr][b.propertyId] = { baby: hasBabyAlert, bed: hasBedAlert, propName: prop.name, color: prop.color };
-    }
 
     // Iterate each day from checkin to checkout
     let d = new Date(b.checkin);
@@ -892,28 +876,26 @@ function renderCalendar() {
           const prog = getChecklistProgress(task.id);
           const bg = task.done ? '#27ae60' : (prog.done > 0 ? '#e8a838' : prop.color);
           const progText = prog.done > 0 && !task.done ? ` (${prog.done}/${prog.total})` : '';
-          lane += `<div class="cal-event cleaning ${task.done ? 'done' : ''}" title="${label}${progText}" style="background:${bg} !important" onclick="event.stopPropagation();openDetail('${task.id}')">
+          // Equipment warnings based on NEXT guest arriving
+          let equipIcons = '';
+          if (task.nextGuest) {
+            const propExtras = prop.extras || [];
+            const hasBabyEquip = propExtras.some(e => e.toLowerCase().includes('parapluie'));
+            const hasBedEquip = propExtras.some(e => e.toLowerCase().includes('matelas'));
+            const nextAl = task.nextAlerts || {};
+            if ((task.nextBabies > 0 || nextAl.baby || nextAl.cot) && hasBabyEquip) equipIcons += '🍼';
+            if (((task.nextGuests > 2 || task.nextAdults > 2) && hasBedEquip) || nextAl.extraBed) equipIcons += '🛏️';
+          }
+          lane += `<div class="cal-event cleaning ${task.done ? 'done' : ''}" title="${label}${progText}${equipIcons ? ' — Equipement a preparer' : ''}" style="background:${bg} !important" onclick="event.stopPropagation();openDetail('${task.id}')">
             <label class="cal-check" onclick="event.stopPropagation()">
               <input type="checkbox" ${task.done ? 'checked' : ''} onchange="event.stopPropagation();toggleTask('${task.id}', this.checked)" />
-              <span class="cal-check-label">${label}${progText}</span>
+              <span class="cal-check-label">${equipIcons ? equipIcons + ' ' : ''}${label}${progText}</span>
             </label>
           </div>`;
         }
         content += `<div class="cal-lane">${lane}</div>`;
       });
-      // Equipment warnings on checkin days
-      const dayAlerts = checkinAlerts[dateStr];
-      if (dayAlerts) {
-        Object.keys(dayAlerts).forEach(pid => {
-          const al = dayAlerts[pid];
-          const shortName = al.propName.replace(/royal\s*/i, '').trim();
-          let icons = '';
-          if (al.baby) icons += '🍼';
-          if (al.bed) icons += '🛏️';
-          if (icons) {
-            content += `<div style="font-size:9px;line-height:1.2;padding:1px 3px;border-radius:3px;background:${al.color}22;border-left:2px solid ${al.color};margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${shortName}: ${al.baby ? 'Lit bébé' : ''}${al.baby && al.bed ? ' + ' : ''}${al.bed ? 'Matelas' : ''}">${icons} ${shortName}</div>`;
-          }
-        });
+      // (equipment warnings now shown directly on cleaning tasks above)
       }
     }
 
