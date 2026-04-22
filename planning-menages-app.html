@@ -33,13 +33,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .calendar-nav h2 { font-size: 16px; font-weight: 600; }
 .nav-btn { padding: 6px 12px; border: 1px solid #ddd; background: #fff; border-radius: 6px; cursor: pointer; font-size: 13px; }
 .nav-btn:hover { background: #f0f0f0; }
-.calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px; margin-bottom: 16px; }
+.calendar { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0; margin-bottom: 16px; }
 .cal-header { text-align: center; font-size: 11px; font-weight: 600; color: #64748b; padding: 6px 2px; text-transform: uppercase; }
-.cal-day { background: #fff; min-height: 90px; padding: 4px; border-radius: 6px; border: 1px solid #eee; position: relative; cursor: pointer; transition: all 0.15s; }
+.cal-day { background: #fff; min-height: 90px; padding: 4px; border-radius: 0; border: 1px solid #eee; position: relative; cursor: pointer; transition: all 0.15s; }
 .cal-day:hover { border-color: #2e75b6; box-shadow: 0 2px 8px rgba(46,117,182,0.15); }
 .cal-day.other-month { background: #fafafa; opacity: 0.4; }
 .cal-day.today { border-color: #2e75b6; border-width: 2px; background: #f0f7ff; }
 .cal-day-num { font-size: 12px; font-weight: 600; color: #333; margin-bottom: 1px; }
+.cal-day-week { min-height: 110px; }
+.cal-day-week .cal-lane { height: 30px; }
+.cal-day-week .cal-bar { height: 12px; }
+.cal-day-week .cal-event { font-size: 11px; }
 .cal-bars { display: flex; flex-direction: column; gap: 0; }
 .cal-lane { height: 26px; overflow: hidden; }
 .cal-lane + .cal-lane { margin-top: 4px; } /* espace entre les deux propriétés */
@@ -125,8 +129,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 @media (max-width: 768px) {
   body { padding: 8px; }
   .header h1 { font-size: 18px; }
-  .calendar { font-size: 10px; gap: 1px; }
-  .cal-day { min-height: 65px; padding: 2px; }
+  .calendar { font-size: 10px; gap: 0; }
+  .cal-day { min-height: 65px; padding: 2px; border-radius: 0; }
+  .cal-day-week { min-height: 80px; }
   .cal-event { font-size: 9px; padding: 2px 3px; }
   .cal-check input[type="checkbox"] { width: 16px; height: 16px; }
   .cal-bar { height: 7px; }
@@ -176,9 +181,13 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 
 <div id="calendarView">
   <div class="calendar-nav">
-    <button class="nav-btn" onclick="changeMonth(-1)">← Mois precedent</button>
+    <button class="nav-btn" onclick="changePeriod(-1)">←</button>
     <h2 id="monthTitle"></h2>
-    <button class="nav-btn" onclick="changeMonth(1)">Mois suivant →</button>
+    <button class="nav-btn" onclick="changePeriod(1)">→</button>
+    <div style="margin-left:auto;display:flex;gap:4px;">
+      <button class="nav-btn" id="btnWeek" onclick="setCalMode('week')" style="font-size:12px;">Semaine</button>
+      <button class="nav-btn" id="btnMonth" onclick="setCalMode('month')" style="font-size:12px;background:#2e75b6;color:#fff;">Mois</button>
+    </div>
   </div>
   <div class="legend" id="legend"></div>
   <div class="calendar" id="calendar"></div>
@@ -295,10 +304,21 @@ const CHECKLIST_ITEMS = [
 ];
 
 let currentMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+let currentWeekStart = getMonday(today); // lundi de la semaine en cours
+let calMode = 'month'; // 'month' or 'week'
 let currentView = 'calendar';
 let filterProperty = 'all';
 let filterStatus = 'all';
 let isConnected = false;
+
+function getMonday(d) {
+  const r = new Date(d);
+  const day = r.getDay();
+  const diff = day === 0 ? -6 : 1 - day; // lundi = jour 1
+  r.setDate(r.getDate() + diff);
+  r.setHours(0,0,0,0);
+  return r;
+}
 
 // Display names for calendar (short labels)
 const displayNames = {
@@ -853,13 +873,21 @@ function renderLegend() {
 }
 
 function renderCalendar() {
-  const year = currentMonth.getFullYear(), month = currentMonth.getMonth();
   const months = ["Janvier","Février","Mars","Avril","Mai","Juin","Juillet","Août","Septembre","Octobre","Novembre","Décembre"];
-  document.getElementById('monthTitle').textContent = months[month] + " " + year;
 
-  let startDay = new Date(year, month, 1).getDay();
-  if (startDay === 0) startDay = 7; startDay--;
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  // Determine date range based on mode
+  let datesToRender = []; // array of Date objects to show
+  if (calMode === 'week') {
+    for (let i = 0; i < 7; i++) datesToRender.push(addDays(currentWeekStart, i));
+    const wEnd = addDays(currentWeekStart, 6);
+    const startLabel = currentWeekStart.getDate() + (currentWeekStart.getMonth() !== wEnd.getMonth() ? ' ' + months[currentWeekStart.getMonth()] : '');
+    document.getElementById('monthTitle').textContent = startLabel + ' – ' + wEnd.getDate() + ' ' + months[wEnd.getMonth()] + ' ' + wEnd.getFullYear();
+  } else {
+    const year = currentMonth.getFullYear(), month = currentMonth.getMonth();
+    document.getElementById('monthTitle').textContent = months[month] + " " + year;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    for (let i = 1; i <= daysInMonth; i++) datesToRender.push(new Date(year, month, i));
+  }
 
   const tasks = getCleaningTasks();
   const tasksByDate = {};
@@ -890,19 +918,95 @@ function renderCalendar() {
     }
   });
 
-  const days = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
-  let html = days.map(d => `<div class="cal-header">${d}</div>`).join('');
-  const totalCells = Math.ceil((startDay + daysInMonth) / 7) * 7;
+  const dayNames = ["Lun","Mar","Mer","Jeu","Ven","Sam","Dim"];
+  const dayNamesFull = ["Lundi","Mardi","Mercredi","Jeudi","Vendredi","Samedi","Dimanche"];
 
-  for (let i = 0; i < totalCells; i++) {
-    const dayNum = i - startDay + 1;
-    const isCur = dayNum >= 1 && dayNum <= daysInMonth;
-    const date = new Date(year, month, dayNum);
-    const dateStr = fmt(date);
-    const isToday = dateStr === fmt(today);
-    let cls = "cal-day";
-    if (!isCur) cls += " other-month";
-    if (isToday) cls += " today";
+  if (calMode === 'week') {
+    // ===== WEEK VIEW =====
+    let html = datesToRender.map(dt => {
+      const dow = (dt.getDay() + 6) % 7; // 0=Lun..6=Dim
+      return `<div class="cal-header">${dayNamesFull[dow]} ${dt.getDate()}</div>`;
+    }).join('');
+
+    datesToRender.forEach(date => {
+      const dateStr = fmt(date);
+      const isToday = dateStr === fmt(today);
+      let cls = "cal-day cal-day-week";
+      if (isToday) cls += " today";
+
+      const dayOcc = occupancy[dateStr] || [];
+      const dayTasks = tasksByDate[dateStr] || [];
+      let content = "";
+      PROPERTIES.forEach(p => {
+        let lane = '';
+        const oAll = dayOcc.filter(x => x.propId === p.id);
+        const hasCO = oAll.some(x => x.type === 'checkout');
+        const hasCI = oAll.some(x => x.type === 'checkin');
+        const hasSame = oAll.some(x => x.type === 'same');
+        if (oAll.length === 0) {
+          lane += `<div class="cal-bar" style="visibility:hidden;"></div>`;
+        } else if (hasCO && hasCI) {
+          lane += `<div class="cal-bar" style="display:flex;"><div style="width:30%;background:${p.color};border-radius:0 4px 4px 0;height:100%;"></div><div style="flex:1;"></div><div style="width:30%;background:${p.color};border-radius:4px 0 0 4px;height:100%;"></div></div>`;
+        } else if (hasCO) {
+          lane += `<div class="cal-bar" style="background:${p.color};width:30%;border-radius:0 4px 4px 0;"></div>`;
+        } else if (hasCI) {
+          lane += `<div class="cal-bar" style="background:${p.color};margin-left:70%;width:30%;border-radius:4px 0 0 4px;"></div>`;
+        } else if (hasSame) {
+          lane += `<div class="cal-bar" style="background:${p.color};margin-left:35%;width:30%;border-radius:4px;"></div>`;
+        } else {
+          lane += `<div class="cal-bar" style="background:${p.color};width:100%;border-radius:0;"></div>`;
+        }
+        const task = dayTasks.find(t => t.propertyId === p.id);
+        if (task) {
+          const prop = PROPERTIES.find(pp => pp.id === p.id) || PROPERTIES[0];
+          const label = getDisplayName(task.propertyName);
+          const prog = getChecklistProgress(task.id);
+          const bg = task.done ? '#27ae60' : (prog.done > 0 ? '#e8a838' : prop.color);
+          const progText = prog.done > 0 && !task.done ? ` (${prog.done}/${prog.total})` : '';
+          let equipIcons = '';
+          if (task.nextGuest) {
+            const propExtras = prop.extras || [];
+            const hasBabyEquip = propExtras.some(e => e.toLowerCase().includes('parapluie'));
+            const hasBedEquip = propExtras.some(e => e.toLowerCase().includes('matelas'));
+            const nextAl = task.nextAlerts || {};
+            if ((task.nextBabies > 0 || nextAl.baby || nextAl.cot) && hasBabyEquip) equipIcons += '🍼';
+            if (((task.nextGuests > 2 || task.nextAdults > 2) && hasBedEquip) || nextAl.extraBed) equipIcons += '🛏️';
+          }
+          // Week view: show more detail on cleaning tasks
+          const guestInfo = task.nextGuest ? `→ ${task.nextGuest}` : '';
+          lane += `<div class="cal-event cleaning ${task.done ? 'done' : ''}" title="${label}${progText}${equipIcons ? ' — Equipement a preparer' : ''}" style="background:${bg} !important" onclick="event.stopPropagation();openDetail('${task.id}')">
+            <label class="cal-check" onclick="event.stopPropagation()">
+              <input type="checkbox" ${task.done ? 'checked' : ''} onchange="event.stopPropagation();toggleTask('${task.id}', this.checked)" />
+              <span class="cal-check-label">${equipIcons ? equipIcons + ' ' : ''}${label}${progText} ${guestInfo}</span>
+            </label>
+          </div>`;
+        }
+        content += `<div class="cal-lane">${lane}</div>`;
+      });
+
+      html += `<div class="${cls}" onclick="openDayDetail('${dateStr}')">
+        <div class="cal-bars">${content}</div></div>`;
+    });
+    document.getElementById('calendar').innerHTML = html;
+  } else {
+    // ===== MONTH VIEW =====
+    const year = currentMonth.getFullYear(), month = currentMonth.getMonth();
+    let startDay = new Date(year, month, 1).getDay();
+    if (startDay === 0) startDay = 7; startDay--;
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    let html = dayNames.map(d => `<div class="cal-header">${d}</div>`).join('');
+    const totalCells = Math.ceil((startDay + daysInMonth) / 7) * 7;
+
+    for (let i = 0; i < totalCells; i++) {
+      const dayNum = i - startDay + 1;
+      const isCur = dayNum >= 1 && dayNum <= daysInMonth;
+      const date = new Date(year, month, dayNum);
+      const dateStr = fmt(date);
+      const isToday = dateStr === fmt(today);
+      let cls = "cal-day";
+      if (!isCur) cls += " other-month";
+      if (isToday) cls += " today";
 
     // Each property gets a fixed-height lane: bar + optional cleaning
     // Lane height is constant so bars stay aligned across days
@@ -967,7 +1071,8 @@ function renderCalendar() {
     html += `<div class="${cls}" onclick="openDayDetail('${dateStr}')">
       <div class="cal-day-num">${isCur ? dayNum : ''}</div><div class="cal-bars">${content}</div></div>`;
   }
-  document.getElementById('calendar').innerHTML = html;
+    document.getElementById('calendar').innerHTML = html;
+  } // end month view
 }
 
 function renderList() {
@@ -1178,7 +1283,23 @@ function switchView(v, el) {
   document.getElementById('listView').style.display = v === 'list' ? '' : 'none';
   render();
 }
-function changeMonth(d) { currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + d, 1); renderCalendar(); }
+function changePeriod(d) {
+  if (calMode === 'month') {
+    currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + d, 1);
+  } else {
+    currentWeekStart = addDays(currentWeekStart, d * 7);
+  }
+  renderCalendar();
+}
+function setCalMode(mode) {
+  calMode = mode;
+  document.getElementById('btnWeek').style.background = mode === 'week' ? '#2e75b6' : '#fff';
+  document.getElementById('btnWeek').style.color = mode === 'week' ? '#fff' : '#333';
+  document.getElementById('btnMonth').style.background = mode === 'month' ? '#2e75b6' : '#fff';
+  document.getElementById('btnMonth').style.color = mode === 'month' ? '#fff' : '#333';
+  if (mode === 'week') currentWeekStart = getMonday(today);
+  renderCalendar();
+}
 function setFilter(type, val) { if (type === 'prop') filterProperty = val; if (type === 'status') filterStatus = val; renderList(); }
 function toggleApiPanel() { const p = document.getElementById('apiPanel'); p.style.display = p.style.display === 'none' ? '' : 'none'; }
 
