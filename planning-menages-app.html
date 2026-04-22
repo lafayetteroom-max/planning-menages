@@ -53,7 +53,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .cal-check-label { overflow: hidden; text-overflow: ellipsis; }
 /* Royal Rose = rose poudré, Royal Pearl = bleu/gris */
 .prop-royal-rose { background: #d4a0a0; } .prop-royal-pearl { background: #8a9bb5; }
-.prop-0 { background: #d4a0a0; } .prop-1 { background: #8a9bb5; } .prop-2 { background: #1abc9c; }
+.prop-0 { background: #8a9bb5; } .prop-1 { background: #d4a0a0; } .prop-2 { background: #1abc9c; }
 .prop-3 { background: #e67e22; } .prop-4 { background: #e74c3c; } .prop-5 { background: #34495e; }
 .task-list { display: flex; flex-direction: column; gap: 8px; }
 .task-card { background: #fff; border-radius: 10px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); display: flex; gap: 12px; align-items: flex-start; border-left: 4px solid #e67e22; transition: all 0.2s; cursor: pointer; }
@@ -196,10 +196,10 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 <script>
 // ===== STATE =====
 let PROPERTIES = [
-  { id: 494975, name: "Royal Rose", color: "#d4a0a0", colorClass: "prop-0",
-    extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] },
-  { id: 667331, name: "Royal Pearl", color: "#8a9bb5", colorClass: "prop-1",
-    extras: ['🛏️ Lit parapluie (bébé)'] }
+  { id: 667331, name: "Royal Pearl", color: "#8a9bb5", colorClass: "prop-0",
+    extras: ['🛏️ Lit parapluie (bébé)'] },
+  { id: 494975, name: "Royal Rose", color: "#d4a0a0", colorClass: "prop-1",
+    extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] }
 ];
 
 const today = new Date();
@@ -421,7 +421,7 @@ async function fetchLodgifyData() {
 
       PROPERTIES = propsList.map((p, i) => {
         const name = p.name || p.internal_name || p.Name || p.property_name || p.title || ("Logement " + (p.id || i));
-        const nameLower = name.toLowerCase();
+        const nameLower = name.trim().toLowerCase();
         const known = knownProps[nameLower];
         const color = known ? known.color : fallbackColors[colorIdx++ % fallbackColors.length];
         const extras = known ? known.extras : [];
@@ -430,6 +430,11 @@ async function fetchLodgifyData() {
           name, color, colorClass: "prop-" + i, extras
         };
       });
+      // Ensure Pearl always above Rose (sort by property ID)
+      const propIdOrder = { 667331: 0, 494975: 1 }; // Pearl first, Rose second
+      PROPERTIES.sort((a, b) => (propIdOrder[a.id] ?? 99) - (propIdOrder[b.id] ?? 99));
+      // Update colorClass after sort
+      PROPERTIES.forEach((p, i) => { p.colorClass = 'prop-' + i; });
       let styleEl = document.getElementById('dynStyles');
       if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'dynStyles'; document.head.appendChild(styleEl); }
       styleEl.textContent = PROPERTIES.map((p, i) => `.prop-${i} { background: ${p.color}; }`).join('\n');
@@ -876,10 +881,14 @@ function renderCalendar() {
       PROPERTIES.forEach(p => {
         let lane = '';
         // Duration bar (or invisible placeholder)
-        const o = dayOcc.find(x => x.propId === p.id);
-        if (!o) {
+        const oAll = dayOcc.filter(x => x.propId === p.id);
+        if (oAll.length === 0) {
           lane += `<div class="cal-bar" style="visibility:hidden;"></div>`;
+        } else if (oAll.some(x => x.type === 'checkout') && oAll.some(x => x.type === 'checkin')) {
+          // Turnover day: checkout (left 30%) + checkin (right 30%) on same line
+          lane += `<div class="cal-bar" style="display:flex;"><div style="width:30%;background:${p.color};border-radius:0 4px 4px 0;height:100%;"></div><div style="flex:1;"></div><div style="width:30%;background:${p.color};border-radius:4px 0 0 4px;height:100%;"></div></div>`;
         } else {
+          const o = oAll[0];
           let style = `background:${o.color};`;
           if (o.type === 'checkin') style += 'margin-left:70%;width:30%;border-radius:4px 0 0 4px;';
           else if (o.type === 'checkout') style += 'width:30%;border-radius:0 4px 4px 0;';
