@@ -550,7 +550,8 @@ async function fetchLodgifyData() {
             babies: babies,
             source: src,
             status: r.status || '',
-            messages: []
+            messages: [],
+            _raw: r // garder les donnees brutes pour extraire notes/commentaires
           };
         }).filter(b => b.checkin && b.checkout && !isNaN(b.checkin.getTime()) && !isNaN(b.checkout.getTime())
           && b.propertyId && PROPERTIES.some(p => p.id == b.propertyId)
@@ -622,14 +623,29 @@ function isNegated(text, matchIndex) {
   return NEGATION_WORDS.some(neg => before.includes(neg));
 }
 
+function stripHtml(html) {
+  // Remove HTML tags and decode entities
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || html;
+}
+
+function extractMessageText(msg) {
+  // Try all possible fields where message content could be
+  const fields = [msg.body, msg.text, msg.message, msg.content,
+    msg.description, msg.subject, msg.note, msg.comment,
+    msg.guest_message, msg.host_message, msg.internal_note];
+  return fields.filter(Boolean).map(f => stripHtml(String(f))).join(' ');
+}
+
 function analyzeMessages(messages, bookingId) {
-  const allText = messages.map(m => (m.body || m.text || m.message || '')).join(' ').toLowerCase();
+  const allText = messages.map(m => extractMessageText(m)).join(' ').toLowerCase();
   if (!allText.trim()) return;
 
   const alerts = {};
 
   // Bébé / baby / nourrisson
-  const babyPatterns = [/bébé/gi, /bebe/gi, /baby/gi, /nourrisson/gi, /infant/gi, /nouveau[- ]?né/gi];
+  const babyPatterns = [/b[ée]b[ée]/gi, /baby/gi, /nourrisson/gi, /infant/gi, /nouveau[- ]?n[ée]/gi, /tout[- ]?petit/gi];
   for (const pat of babyPatterns) {
     let m; while ((m = pat.exec(allText)) !== null) {
       if (!isNegated(allText, m.index)) { alerts.baby = true; break; }
@@ -638,8 +654,9 @@ function analyzeMessages(messages, bookingId) {
     if (alerts.baby) break;
   }
 
-  // Lit parapluie / cot / crib
-  const cotPatterns = [/lit parapluie/gi, /lit bébé/gi, /lit bebe/gi, /travel cot/gi, /baby cot/gi, /crib/gi];
+  // Lit parapluie / cot / crib / lit bébé
+  const cotPatterns = [/lit parapluie/gi, /lit\s+(pour\s+)?b[ée]b[ée]/gi, /lit\s+enfant/gi,
+    /travel cot/gi, /baby cot/gi, /baby bed/gi, /crib/gi, /berceau/gi, /couffin/gi];
   for (const pat of cotPatterns) {
     let m; while ((m = pat.exec(allText)) !== null) {
       if (!isNegated(allText, m.index)) { alerts.cot = true; break; }
@@ -647,8 +664,14 @@ function analyzeMessages(messages, bookingId) {
     if (alerts.cot) break;
   }
 
-  // Matelas gonflable / extra bed / 3e personne
-  const bedPatterns = [/matelas/gi, /gonflable/gi, /extra bed/gi, /lit d'appoint/gi, /lit suppl/gi, /3[eè]me? personne/gi, /troisième personne/gi, /3rd person/gi];
+  // Matelas / extra bed / 3e personne / maman / parent
+  const bedPatterns = [/matelas/gi, /gonflable/gi, /extra bed/gi, /lit d'appoint/gi,
+    /lit suppl[ée]mentaire/gi, /lit\s+suppl/gi, /couchage suppl/gi, /couchage en plus/gi,
+    /3[eè]me?\s*personne/gi, /troisi[eè]me\s*personne/gi, /3rd person/gi,
+    /personne suppl/gi, /adulte suppl/gi, /place en plus/gi,
+    /ma\s+m[eè]re/gi, /sa\s+m[eè]re/gi, /ma\s+maman/gi, /sa\s+maman/gi,
+    /mon\s+p[eè]re/gi, /son\s+p[eè]re/gi, /belle[- ]?m[eè]re/gi,
+    /grand[- ]?m[eè]re/gi, /mamie/gi, /papy/gi, /grand[- ]?p[eè]re/gi];
   for (const pat of bedPatterns) {
     let m; while ((m = pat.exec(allText)) !== null) {
       if (!isNegated(allText, m.index)) { alerts.extraBed = true; break; }
@@ -657,7 +680,7 @@ function analyzeMessages(messages, bookingId) {
   }
 
   // Enfant / children / kids
-  const childPatterns = [/enfant/gi, /child/gi, /children/gi, /kids?(?!\w)/gi, /fils/gi, /fille/gi];
+  const childPatterns = [/enfant/gi, /child/gi, /children/gi, /kids?(?!\w)/gi, /fils/gi, /fille/gi, /gar[çc]on/gi];
   for (const pat of childPatterns) {
     let m; while ((m = pat.exec(allText)) !== null) {
       if (!isNegated(allText, m.index)) { alerts.children = true; break; }
@@ -667,6 +690,7 @@ function analyzeMessages(messages, bookingId) {
 
   if (Object.keys(alerts).length > 0) {
     messageAlerts[bookingId] = alerts;
+    console.log('Message alert for booking', bookingId, ':', alerts, '| text sample:', allText.substring(0, 200));
   }
 }
 
@@ -675,33 +699,75 @@ async function scanMessagesInBackground(apiKey) {
   const originalText = connEl.textContent;
   let scanned = 0;
   const toScan = bookings.filter(b => b.checkout >= today); // Only scan upcoming
+  console.log('Starting message scan for', toScan.length, 'bookings');
 
   for (const b of toScan) {
     try {
       connEl.textContent = `Scan messages... (${++scanned}/${toScan.length})`;
-      const resUrl = `/api/v1/reservation/${b.id}/messages`;
-      const res = await fetch(resUrl, {
-        headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-      });
-      if (res.ok) {
-        const msgs = await res.json();
-        const msgArray = Array.isArray(msgs) ? msgs : (msgs?.items || msgs?.messages || []);
-        if (msgArray.length > 0) {
-          messageCache[b.id] = msgArray;
-          b.messages = msgArray;
-          analyzeMessages(msgArray, b.id);
+      let allMessages = [];
+
+      // Try v1 messages endpoint
+      try {
+        const res = await fetch(`/api/v1/reservation/${b.id}/messages`, {
+          headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          let msgs = [];
+          if (Array.isArray(data)) msgs = data;
+          else if (data?.items) msgs = data.items;
+          else if (data?.messages) msgs = data.messages;
+          else if (data?.threads) {
+            // Some APIs nest messages in threads
+            data.threads.forEach(t => {
+              if (t.messages) msgs.push(...t.messages);
+              else msgs.push(t);
+            });
+          }
+          if (msgs.length > 0) allMessages.push(...msgs);
+          if (scanned <= 3) console.log(`Messages v1 for ${b.id} (${b.guestName}):`, msgs.length, 'msgs', msgs.length > 0 ? 'keys:' + Object.keys(msgs[0]).join(',') : '');
         }
+      } catch(e) { /* silent */ }
+
+      // Also try v2 messages endpoint
+      try {
+        const res2 = await fetch(`/api/v2/reservations/${b.id}/messages`, {
+          headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
+        });
+        if (res2.ok) {
+          const data2 = await res2.json();
+          let msgs2 = Array.isArray(data2) ? data2 : (data2?.items || data2?.messages || []);
+          if (msgs2.length > 0) allMessages.push(...msgs2);
+          if (scanned <= 3) console.log(`Messages v2 for ${b.id}:`, msgs2.length, 'msgs');
+        }
+      } catch(e) { /* silent */ }
+
+      // Also check booking-level notes/comments from the original API data
+      const rawBooking = b._raw;
+      if (rawBooking) {
+        const noteFields = [rawBooking.notes, rawBooking.guest_notes, rawBooking.special_requests,
+          rawBooking.internal_notes, rawBooking.comment, rawBooking.guest_comment,
+          rawBooking.host_comment, rawBooking.description];
+        const noteTexts = noteFields.filter(Boolean).map(n => String(n));
+        if (noteTexts.length > 0) {
+          allMessages.push({ body: noteTexts.join(' ') });
+        }
+      }
+
+      if (allMessages.length > 0) {
+        messageCache[b.id] = allMessages;
+        b.messages = allMessages;
+        analyzeMessages(allMessages, b.id);
       }
     } catch(e) {
       console.warn(`Messages scan error for ${b.id}:`, e.message);
     }
-    // Small delay to avoid rate limiting
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise(r => setTimeout(r, 150));
   }
 
   connEl.textContent = originalText;
   render(); // Re-render with message alerts
-  console.log('Message scan complete:', Object.keys(messageAlerts).length, 'alerts found');
+  console.log('Message scan complete:', Object.keys(messageAlerts).length, 'alerts found out of', toScan.length, 'bookings scanned');
 }
 
 // ===== GUEST EDITING =====
