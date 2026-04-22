@@ -718,52 +718,98 @@ async function scanMessagesInBackground(apiKey) {
       connEl.textContent = `Scan messages... (${++scanned}/${toScan.length})`;
       let allMessages = [];
 
-      // Try v1 messages endpoint
-      try {
-        const res = await fetch(`/api/v1/reservation/${b.id}/messages`, {
-          headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          let msgs = [];
-          if (Array.isArray(data)) msgs = data;
-          else if (data?.items) msgs = data.items;
-          else if (data?.messages) msgs = data.messages;
-          else if (data?.threads) {
-            // Some APIs nest messages in threads
-            data.threads.forEach(t => {
-              if (t.messages) msgs.push(...t.messages);
-              else msgs.push(t);
-            });
-          }
-          if (msgs.length > 0) allMessages.push(...msgs);
-          if (scanned <= 3) console.log(`Messages v1 for ${b.id} (${b.guestName}):`, msgs.length, 'msgs', msgs.length > 0 ? 'keys:' + Object.keys(msgs[0]).join(',') : '');
-        }
-      } catch(e) { /* silent */ }
-
-      // Also try v2 messages endpoint
-      try {
-        const res2 = await fetch(`/api/v2/reservations/${b.id}/messages`, {
-          headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-        });
-        if (res2.ok) {
-          const data2 = await res2.json();
-          let msgs2 = Array.isArray(data2) ? data2 : (data2?.items || data2?.messages || []);
-          if (msgs2.length > 0) allMessages.push(...msgs2);
-          if (scanned <= 3) console.log(`Messages v2 for ${b.id}:`, msgs2.length, 'msgs');
-        }
-      } catch(e) { /* silent */ }
-
-      // Also check booking-level notes/comments from the original API data
+      // === 1. Booking-level notes/comments from the raw API data ===
       const rawBooking = b._raw;
       if (rawBooking) {
-        const noteFields = [rawBooking.notes, rawBooking.guest_notes, rawBooking.special_requests,
+        // Explore ALL string fields recursively for hidden notes
+        const noteFields = [
+          rawBooking.notes, rawBooking.guest_notes, rawBooking.special_requests,
           rawBooking.internal_notes, rawBooking.comment, rawBooking.guest_comment,
-          rawBooking.host_comment, rawBooking.description];
-        const noteTexts = noteFields.filter(Boolean).map(n => String(n));
+          rawBooking.host_comment, rawBooking.description, rawBooking.message,
+          rawBooking.guest_message, rawBooking.additional_info, rawBooking.remarks,
+          rawBooking.source_text, rawBooking.booking_text
+        ];
+        // Also check rooms-level notes
+        if (rawBooking.rooms && Array.isArray(rawBooking.rooms)) {
+          rawBooking.rooms.forEach(room => {
+            noteFields.push(room.notes, room.guest_notes, room.special_requests, room.comment);
+          });
+        }
+        // Also check policies/extras
+        if (rawBooking.policies) noteFields.push(rawBooking.policies);
+        const noteTexts = noteFields.filter(Boolean).map(n => stripHtml(String(n)));
         if (noteTexts.length > 0) {
           allMessages.push({ body: noteTexts.join(' ') });
+          if (scanned <= 5) console.log(`Notes for ${b.id} (${b.guestName}):`, noteTexts.join(' ').substring(0, 300));
         }
+        // Dump all raw keys for debugging (first 5 bookings)
+        if (scanned <= 5) {
+          console.log(`RAW keys for ${b.id} (${b.guestName}):`, Object.keys(rawBooking));
+          // Look for any string field that might contain messages
+          Object.entries(rawBooking).forEach(([k, v]) => {
+            if (typeof v === 'string' && v.length > 10) {
+              console.log(`  ${k}: "${v.substring(0, 150)}"`);
+            }
+          });
+        }
+      }
+
+      // === 2. Try multiple API endpoints for messages/conversations ===
+      const messageEndpoints = [
+        `/api/v1/reservation/booking/${b.id}/messages`,
+        `/api/v1/reservation/${b.id}/messages`,
+        `/api/v2/reservations/${b.id}/messages`,
+        `/api/v2/reservations/${b.id}/conversations`,
+        `/api/v1/reservation/${b.id}/conversation`,
+      ];
+
+      for (const endpoint of messageEndpoints) {
+        try {
+          const res = await fetch(endpoint, {
+            headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            let msgs = [];
+            if (Array.isArray(data)) msgs = data;
+            else if (data?.items) msgs = data.items;
+            else if (data?.messages) msgs = data.messages;
+            else if (data?.threads) {
+              data.threads.forEach(t => {
+                if (t.messages) msgs.push(...t.messages);
+                else msgs.push(t);
+              });
+            }
+            // If response is a single object with text fields, treat it as a message
+            else if (data && typeof data === 'object' && !Array.isArray(data)) {
+              msgs = [data];
+            }
+            if (msgs.length > 0) {
+              allMessages.push(...msgs);
+              if (scanned <= 5) console.log(`Messages from ${endpoint} for ${b.id} (${b.guestName}):`, msgs.length, 'msgs', msgs.length > 0 ? JSON.stringify(msgs[0]).substring(0, 300) : '');
+            }
+          } else if (scanned <= 3) {
+            console.log(`${endpoint} for ${b.id}: HTTP ${res.status}`);
+          }
+        } catch(e) { /* silent */ }
+      }
+
+      // === 3. Try to get conversation threads from inbox ===
+      if (allMessages.length === 0 && b.guestName) {
+        try {
+          const res = await fetch(`/api/v1/inbox?reservation_id=${b.id}`, {
+            headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const threads = Array.isArray(data) ? data : (data?.items || data?.threads || []);
+            threads.forEach(t => {
+              if (t.messages && Array.isArray(t.messages)) allMessages.push(...t.messages);
+              else allMessages.push(t);
+            });
+            if (threads.length > 0 && scanned <= 5) console.log(`Inbox for ${b.id}:`, threads.length, 'threads');
+          }
+        } catch(e) { /* silent */ }
       }
 
       if (allMessages.length > 0) {
@@ -774,12 +820,13 @@ async function scanMessagesInBackground(apiKey) {
     } catch(e) {
       console.warn(`Messages scan error for ${b.id}:`, e.message);
     }
-    await new Promise(r => setTimeout(r, 150));
+    await new Promise(r => setTimeout(r, 100));
   }
 
   connEl.textContent = originalText;
   render(); // Re-render with message alerts
   console.log('Message scan complete:', Object.keys(messageAlerts).length, 'alerts found out of', toScan.length, 'bookings scanned');
+  console.log('All message alerts:', JSON.stringify(messageAlerts));
 }
 
 // ===== GUEST EDITING =====
