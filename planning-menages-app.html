@@ -713,6 +713,40 @@ async function scanMessagesInBackground(apiKey) {
   const toScan = bookings.filter(b => b.checkout >= today); // Only scan upcoming
   console.log('Starting message scan for', toScan.length, 'bookings');
 
+  // === 0. Fetch ALL conversation threads from inbox first ===
+  let allThreads = [];
+  try {
+    connEl.textContent = 'Chargement conversations...';
+    // Try multiple inbox/thread list endpoints
+    const inboxEndpoints = [
+      '/api/v1/reservation/threads',
+      '/api/v2/reservation/threads',
+      '/api/v1/inbox',
+    ];
+    for (const ep of inboxEndpoints) {
+      try {
+        const res = await fetch(ep, { headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' } });
+        if (res.ok) {
+          const data = await res.json();
+          const items = Array.isArray(data) ? data : (data?.items || data?.threads || data?.results || []);
+          if (items.length > 0) {
+            allThreads = items;
+            console.log(`✅ Inbox from ${ep}:`, items.length, 'threads', JSON.stringify(items[0]).substring(0, 500));
+            break;
+          }
+        }
+        console.log(`Inbox ${ep}: HTTP ${res.status}`);
+      } catch(e) { console.log(`Inbox ${ep}: error`, e.message); }
+    }
+  } catch(e) { console.warn('Inbox fetch error:', e); }
+
+  // Build thread lookup by booking ID or guest name
+  const threadByBookingId = {};
+  allThreads.forEach(t => {
+    if (t.booking_id) threadByBookingId[t.booking_id] = t;
+    if (t.reservation_id) threadByBookingId[t.reservation_id] = t;
+  });
+
   for (const b of toScan) {
     try {
       connEl.textContent = `Scan messages... (${++scanned}/${toScan.length})`;
@@ -756,13 +790,39 @@ async function scanMessagesInBackground(apiKey) {
 
       // === 2. Fetch conversation via thread_uid (Lodgify's messaging system) ===
       const threadUid = rawBooking?.thread_uid;
-      if (threadUid) {
+      if (scanned <= 5) console.log(`thread_uid for ${b.id} (${b.guestName}): "${threadUid}"`);
+
+      // Also get Airbnb threadId from source_text if present
+      let airbnbThreadId = null;
+      try {
+        const srcData = JSON.parse(rawBooking?.source_text || '{}');
+        airbnbThreadId = srcData.threadId || srcData.migrationThreadId;
+      } catch(e) {}
+
+      // Collect all thread IDs to try
+      const threadIds = [threadUid, airbnbThreadId].filter(Boolean);
+      // Also check if inbox has a match for this booking
+      const inboxThread = threadByBookingId[b.id];
+      if (inboxThread) {
+        const inboxMessages = inboxThread.messages || [];
+        if (inboxMessages.length > 0) {
+          allMessages.push(...inboxMessages);
+          console.log(`✅ Inbox match for ${b.id} (${b.guestName}):`, inboxMessages.length, 'msgs');
+        }
+        // Also try thread ID from inbox
+        if (inboxThread.id) threadIds.push(inboxThread.id);
+        if (inboxThread.uid) threadIds.push(inboxThread.uid);
+        if (inboxThread.thread_uid) threadIds.push(inboxThread.thread_uid);
+      }
+
+      for (const tid of [...new Set(threadIds)]) {
         const threadEndpoints = [
-          `/api/v1/reservation/threads/${threadUid}/messages`,
-          `/api/v1/reservation/threads/${threadUid}`,
-          `/api/v2/reservation/threads/${threadUid}/messages`,
-          `/api/v2/reservation/threads/${threadUid}`,
+          `/api/v1/reservation/threads/${tid}/messages`,
+          `/api/v1/reservation/threads/${tid}`,
+          `/api/v2/reservation/threads/${tid}/messages`,
+          `/api/v2/reservation/threads/${tid}`,
         ];
+        let found = false;
         for (const endpoint of threadEndpoints) {
           try {
             const res = await fetch(endpoint, {
@@ -780,21 +840,20 @@ async function scanMessagesInBackground(apiKey) {
                   else msgs.push(t);
                 });
               }
-              // Single object with text content
               else if (data && typeof data === 'object' && !Array.isArray(data)) {
                 msgs = [data];
               }
               if (msgs.length > 0) {
                 allMessages.push(...msgs);
                 console.log(`✅ Thread ${endpoint} for ${b.id} (${b.guestName}):`, msgs.length, 'msgs', JSON.stringify(msgs[0]).substring(0, 400));
-                break; // Got messages, skip other endpoints
+                found = true;
+                break;
               }
             }
-            if (scanned <= 5) console.log(`Thread ${endpoint}: HTTP ${res.status}`);
+            if (scanned <= 5) console.log(`${endpoint}: HTTP ${res.status}`);
           } catch(e) { /* silent */ }
         }
-      } else if (scanned <= 5) {
-        console.log(`No thread_uid for ${b.id} (${b.guestName})`);
+        if (found) break;
       }
 
       // === 3. Also try booking-based message endpoints ===
