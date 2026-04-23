@@ -754,62 +754,72 @@ async function scanMessagesInBackground(apiKey) {
         }
       }
 
-      // === 2. Try multiple API endpoints for messages/conversations ===
-      const messageEndpoints = [
-        `/api/v1/reservation/booking/${b.id}/messages`,
-        `/api/v1/reservation/${b.id}/messages`,
-        `/api/v2/reservations/${b.id}/messages`,
-        `/api/v2/reservations/${b.id}/conversations`,
-        `/api/v1/reservation/${b.id}/conversation`,
-      ];
-
-      for (const endpoint of messageEndpoints) {
-        try {
-          const res = await fetch(endpoint, {
-            headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            let msgs = [];
-            if (Array.isArray(data)) msgs = data;
-            else if (data?.items) msgs = data.items;
-            else if (data?.messages) msgs = data.messages;
-            else if (data?.threads) {
-              data.threads.forEach(t => {
-                if (t.messages) msgs.push(...t.messages);
-                else msgs.push(t);
-              });
+      // === 2. Fetch conversation via thread_uid (Lodgify's messaging system) ===
+      const threadUid = rawBooking?.thread_uid;
+      if (threadUid) {
+        const threadEndpoints = [
+          `/api/v1/reservation/threads/${threadUid}/messages`,
+          `/api/v1/reservation/threads/${threadUid}`,
+          `/api/v2/reservation/threads/${threadUid}/messages`,
+          `/api/v2/reservation/threads/${threadUid}`,
+        ];
+        for (const endpoint of threadEndpoints) {
+          try {
+            const res = await fetch(endpoint, {
+              headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
+            });
+            if (res.ok) {
+              const data = await res.json();
+              let msgs = [];
+              if (Array.isArray(data)) msgs = data;
+              else if (data?.items) msgs = data.items;
+              else if (data?.messages) msgs = data.messages;
+              else if (data?.threads) {
+                data.threads.forEach(t => {
+                  if (t.messages) msgs.push(...t.messages);
+                  else msgs.push(t);
+                });
+              }
+              // Single object with text content
+              else if (data && typeof data === 'object' && !Array.isArray(data)) {
+                msgs = [data];
+              }
+              if (msgs.length > 0) {
+                allMessages.push(...msgs);
+                console.log(`✅ Thread ${endpoint} for ${b.id} (${b.guestName}):`, msgs.length, 'msgs', JSON.stringify(msgs[0]).substring(0, 400));
+                break; // Got messages, skip other endpoints
+              }
             }
-            // If response is a single object with text fields, treat it as a message
-            else if (data && typeof data === 'object' && !Array.isArray(data)) {
-              msgs = [data];
-            }
-            if (msgs.length > 0) {
-              allMessages.push(...msgs);
-              if (scanned <= 5) console.log(`Messages from ${endpoint} for ${b.id} (${b.guestName}):`, msgs.length, 'msgs', msgs.length > 0 ? JSON.stringify(msgs[0]).substring(0, 300) : '');
-            }
-          } else if (scanned <= 3) {
-            console.log(`${endpoint} for ${b.id}: HTTP ${res.status}`);
-          }
-        } catch(e) { /* silent */ }
+            if (scanned <= 5) console.log(`Thread ${endpoint}: HTTP ${res.status}`);
+          } catch(e) { /* silent */ }
+        }
+      } else if (scanned <= 5) {
+        console.log(`No thread_uid for ${b.id} (${b.guestName})`);
       }
 
-      // === 3. Try to get conversation threads from inbox ===
-      if (allMessages.length === 0 && b.guestName) {
-        try {
-          const res = await fetch(`/api/v1/inbox?reservation_id=${b.id}`, {
-            headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            const threads = Array.isArray(data) ? data : (data?.items || data?.threads || []);
-            threads.forEach(t => {
-              if (t.messages && Array.isArray(t.messages)) allMessages.push(...t.messages);
-              else allMessages.push(t);
+      // === 3. Also try booking-based message endpoints ===
+      if (allMessages.length <= 1) { // only raw notes so far
+        const bookingEndpoints = [
+          `/api/v1/reservation/booking/${b.id}/messages`,
+          `/api/v1/reservation/${b.id}/messages`,
+          `/api/v2/reservations/${b.id}/messages`,
+        ];
+        for (const endpoint of bookingEndpoints) {
+          try {
+            const res = await fetch(endpoint, {
+              headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
             });
-            if (threads.length > 0 && scanned <= 5) console.log(`Inbox for ${b.id}:`, threads.length, 'threads');
-          }
-        } catch(e) { /* silent */ }
+            if (res.ok) {
+              const data = await res.json();
+              let msgs = Array.isArray(data) ? data : (data?.items || data?.messages || []);
+              if (msgs.length > 0) {
+                allMessages.push(...msgs);
+                console.log(`✅ Booking msgs ${endpoint} for ${b.id}:`, msgs.length);
+                break;
+              }
+            }
+          } catch(e) { /* silent */ }
+        }
       }
 
       if (allMessages.length > 0) {
