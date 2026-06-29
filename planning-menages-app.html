@@ -476,30 +476,29 @@ async function fetchLodgifyData() {
               if (Array.isArray(firstJson[keys[ki]])) { firstItems = firstJson[keys[ki]]; break; }
             }
           }
-          dbgLog('page1 items:' + firstItems.length);
+          dbgLog('p1:' + firstItems.length);
           allRawItems = firstItems;
-          if (allRawItems.length >= 50) {
-            var pagePromises = [];
-            for (var off = 50; off < 1100; off += 50) {
-              pagePromises.push(
-                fetch('/api/v1/reservation?offset=' + off + '&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } })
-                  .then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; })
-              );
-            }
-            var pages = await Promise.all(pagePromises);
-            for (var pi = 0; pi < pages.length; pi++) {
-              var pg = Array.isArray(pages[pi]) ? pages[pi] : [];
-              if (!pg.length && pages[pi] && typeof pages[pi] === 'object') {
-                var pkeys = Object.keys(pages[pi]);
+          // Load remaining pages one by one (Safari mobile compatible)
+          var pgNum = 2;
+          while (allRawItems.length % 50 === 0 && allRawItems.length < 1200) {
+            try {
+              var pgRes = await fetch('/api/v1/reservation?offset=' + allRawItems.length + '&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } });
+              if (!pgRes.ok) break;
+              var pgJson = await pgRes.json();
+              var pgItems = Array.isArray(pgJson) ? pgJson : [];
+              if (!pgItems.length && pgJson && typeof pgJson === 'object') {
+                var pkeys = Object.keys(pgJson);
                 for (var pki = 0; pki < pkeys.length; pki++) {
-                  if (Array.isArray(pages[pi][pkeys[pki]])) { pg = pages[pi][pkeys[pki]]; break; }
+                  if (Array.isArray(pgJson[pkeys[pki]])) { pgItems = pgJson[pkeys[pki]]; break; }
                 }
               }
-              if (pg.length > 0) allRawItems = allRawItems.concat(pg);
-              else break;
-            }
-            dbgLog('total:' + allRawItems.length);
+              if (pgItems.length === 0) break;
+              allRawItems = allRawItems.concat(pgItems);
+              connEl.textContent = allRawItems.length + ' reservations...';
+              pgNum++;
+            } catch(pe) { dbgLog('pg err:' + pe.message); break; }
           }
+          dbgLog('tot:' + allRawItems.length);
         }
       } catch(e) { dbgLog('fetch err:' + e.message); }
     }
