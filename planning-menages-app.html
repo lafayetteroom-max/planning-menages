@@ -399,72 +399,33 @@ async function fetchLodgifyData() {
   const status = document.getElementById('apiStatus');
   const connEl = document.getElementById('connStatus');
   status.className = 'api-status loading';
-  status.textContent = 'Connexion a Lodgify...';
   connEl.className = 'connection-status loading';
-  connEl.textContent = 'Connexion...';
+  connEl.textContent = 'Chargement...';
 
   try {
-    // ===== FETCH PROPERTIES =====
-    const propRes = await fetch('/api/v2/properties', {
-      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-    });
-    if (!propRes.ok) {
-      const errText = await propRes.text().catch(() => '');
-      throw new Error('Erreur Lodgify (HTTP ' + propRes.status + ')' + (errText ? ': ' + errText.substring(0, 200) : ''));
-    }
-    const propsRaw = await propRes.json();
-    console.log('LODGIFY /properties RAW:', JSON.stringify(propsRaw, null, 2));
+    // ===== PROPERTIES: hardcoded (known) + background API refresh =====
+    // Use hardcoded config immediately — no need to wait for API
+    PROPERTIES = [
+      { id: 667331, name: "Royal Pearl", color: "#8a9bb5", colorClass: "prop-0",
+        extras: ['🛏️ Lit parapluie (bébé)'] },
+      { id: 494975, name: "Royal Rose", color: "#d4a0a0", colorClass: "prop-1",
+        extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] }
+    ];
 
-    // Parse properties — handle array or object with items/results
-    let propsList = [];
-    if (Array.isArray(propsRaw)) propsList = propsRaw;
-    else if (propsRaw.items) propsList = propsRaw.items;
-    else if (propsRaw.results) propsList = propsRaw.results;
-    else if (propsRaw.count !== undefined && propsRaw.items) propsList = propsRaw.items;
-
-    // Known property config (colors + equipment)
-    const knownProps = {
-      'royal rose': { color: '#d4a0a0', extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] },
-      'royal pearl': { color: '#8a9bb5', extras: ['🛏️ Lit parapluie (bébé)'] },
-    };
-    const fallbackColors = ["#1abc9c","#e67e22","#2ecc71","#9b59b6","#e74c3c","#34495e","#f39c12","#16a085"];
-
-    if (propsList.length > 0) {
-      console.log('First property keys:', Object.keys(propsList[0]));
-      let colorIdx = 0;
-
-      PROPERTIES = propsList.map((p, i) => {
-        const name = p.name || p.internal_name || p.Name || p.property_name || p.title || ("Logement " + (p.id || i));
-        const nameLower = name.trim().toLowerCase();
-        const known = knownProps[nameLower];
-        const color = known ? known.color : fallbackColors[colorIdx++ % fallbackColors.length];
-        const extras = known ? known.extras : [];
-        return {
-          id: p.id || p.property_id || p.Id,
-          name, color, colorClass: "prop-" + i, extras
-        };
-      });
-      // Ensure Pearl always above Rose (sort by property ID)
-      const propIdOrder = { 667331: 0, 494975: 1 }; // Pearl first, Rose second
-      PROPERTIES.sort((a, b) => (propIdOrder[a.id] ?? 99) - (propIdOrder[b.id] ?? 99));
-      // Update colorClass after sort
-      PROPERTIES.forEach((p, i) => { p.colorClass = 'prop-' + i; });
-      let styleEl = document.getElementById('dynStyles');
-      if (!styleEl) { styleEl = document.createElement('style'); styleEl.id = 'dynStyles'; document.head.appendChild(styleEl); }
-      styleEl.textContent = PROPERTIES.map((p, i) => `.prop-${i} { background: ${p.color}; }`).join('\n');
-    }
-
-    // ===== FETCH RESERVATIONS via /v1/reservation =====
-    status.textContent = 'Chargement des reservations...';
+    // ===== FETCH RESERVATIONS — start immediately (no property fetch delay) =====
+    connEl.textContent = 'Reservations...';
 
     // Charger les sejours arrives depuis J-5 max (pour capter les sejours en cours)
     const dateFrom = fmt(addDays(today, -5));
+
+    // Start state fetch in parallel (don't await yet)
+    const statePromise = fetch('/state').then(r => r.ok ? r.json() : null).catch(() => null);
 
     let allRawItems = [];
 
     try {
       const seenIds = new Set();
-      const PAGE_SIZE = 50;
+      const PAGE_SIZE = 200;
 
       for (let offset = 0; offset < 2000; offset += PAGE_SIZE) {
         const resUrl = `/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`;
@@ -587,20 +548,18 @@ async function fetchLodgifyData() {
 
     isConnected = true;
 
-    // Load shared state from server (cleaning status, notes, checklist, etc.)
+    // Load shared state (was fetched in parallel)
     try {
-      const stateRes = await fetch('/state');
-      if (stateRes.ok) {
-        const savedState = await stateRes.json();
+      const savedState = await statePromise;
+      if (savedState) {
         cleaningStatus = savedState.cleaningStatus || {};
         cleaningNotes = savedState.cleaningNotes || {};
         checklistState = savedState.checklistState || {};
         customTimes = savedState.customTimes || {};
         customGuests = savedState.customGuests || {};
         stateVersion = savedState.version || 0;
-        console.log('Shared state loaded (v' + stateVersion + ')');
       }
-    } catch(e) { console.warn('State load failed, using empty state'); cleaningStatus = {}; }
+    } catch(e) { cleaningStatus = {}; }
 
     const debugInfo = `${PROPERTIES.length} logement(s), ${bookings.length} reservations`;
     status.className = 'api-status success';
