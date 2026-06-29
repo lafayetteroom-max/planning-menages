@@ -492,11 +492,11 @@ async function fetchLodgifyData() {
       }
 
       console.log('Fetched', allRawItems.length, 'raw reservations');
-      document.title = `DEBUG: ${allRawItems.length} raw items loaded`;
+      document.title = 'Planning Ménages';
 
     } catch(fetchErr) {
       console.error('Fetch error:', fetchErr);
-      document.title = `ERREUR: ${fetchErr.message}`;
+      console.error('Fetch error:', fetchErr.message);
     }
 
     if (allRawItems.length > 0) {
