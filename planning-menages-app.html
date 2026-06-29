@@ -574,15 +574,6 @@ async function fetchLodgifyData() {
 
         bookings.sort((a, b) => a.checkin - b.checkin);
 
-        // Show debug banner on page (temporary)
-        const debugBanner = document.createElement('div');
-        debugBanner.style.cssText = 'background:#fff3cd;border:2px solid #f0ad4e;padding:12px;margin:8px 0;border-radius:8px;font-size:13px;font-family:monospace;';
-        debugBanner.innerHTML = `<strong>DEBUG</strong> (a supprimer)<br>
-          Props: ${PROPERTIES.map(p => p.id + '="' + p.name + '"').join(', ')}<br>
-          Raw items: ${beforeFilter} | After filter: ${bookings.length}<br>
-          Filtres: ${JSON.stringify(reasons)}<br>
-          ${mismatchSamples.length > 0 ? 'Prop mismatch samples: ' + mismatchSamples.join(', ') + ' (vs IDs: ' + propIds.join(',') + ')' : ''}`;
-        document.querySelector('.header')?.after(debugBanner);
         if (bookings.length > 0) {
           console.log('Range:', fmt(bookings[0].checkin), '→', fmt(bookings[bookings.length-1].checkout));
           // Auto-navigate calendar to the most recent booking
@@ -752,11 +743,17 @@ async function scanMessagesInBackground(apiKey) {
   // First render with notes-based alerts
   render();
 
-  // === Step 2: Try to fetch thread messages in parallel batches ===
+  // === Step 2: Try to fetch thread messages — auto-detect working endpoint ===
   connEl.textContent = 'Scan messages...';
-  const BATCH_SIZE = 5; // 5 concurrent API calls
+  let workingEndpointPattern = null; // Once we find one that works, reuse it
+  let failCount = 0;
+  const MAX_FAILS = 5; // After 5 bookings with no messages, stop trying API
 
-  async function tryFetchMessages(b) {
+  for (let i = 0; i < toScan.length; i++) {
+    const b = toScan[i];
+    if (failCount >= MAX_FAILS && !workingEndpointPattern) break; // No endpoint works, stop
+
+    connEl.textContent = `Scan messages... (${i + 1}/${toScan.length})`;
     const raw = b._raw;
     const threadUid = raw?.thread_uid;
     let airbnbThreadId = null;
@@ -766,44 +763,51 @@ async function scanMessagesInBackground(apiKey) {
     } catch(e) {}
 
     const threadIds = [threadUid, airbnbThreadId].filter(Boolean);
-    const endpoints = [];
-    for (const tid of [...new Set(threadIds)]) {
-      endpoints.push(`/api/v1/reservation/threads/${tid}/messages`);
-      endpoints.push(`/api/v1/reservation/threads/${tid}`);
-    }
-    endpoints.push(`/api/v1/reservation/booking/${b.id}/messages`);
 
-    for (const endpoint of endpoints) {
+    // Build endpoint list — if we already found a working pattern, only try that one
+    let endpoints = [];
+    if (workingEndpointPattern) {
+      for (const tid of [...new Set(threadIds)]) {
+        endpoints.push(workingEndpointPattern.replace('{tid}', tid));
+      }
+    } else {
+      for (const tid of [...new Set(threadIds)]) {
+        endpoints.push({ url: `/api/v1/reservation/threads/${tid}/messages`, pat: `/api/v1/reservation/threads/{tid}/messages` });
+        endpoints.push({ url: `/api/v1/reservation/threads/${tid}`, pat: `/api/v1/reservation/threads/{tid}` });
+      }
+      endpoints.push({ url: `/api/v1/reservation/booking/${b.id}/messages`, pat: `/api/v1/reservation/booking/{tid}/messages` });
+    }
+
+    let found = false;
+    const tryEndpoint = async (ep) => {
+      const url = typeof ep === 'string' ? ep : ep.url;
       try {
-        const res = await fetch(endpoint, {
-          headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-        });
+        const res = await fetch(url, { headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' } });
         if (res.ok) {
           const data = await res.json();
-          let msgs = [];
-          if (Array.isArray(data)) msgs = data;
-          else if (data?.items) msgs = data.items;
-          else if (data?.messages) msgs = data.messages;
-          else if (data && typeof data === 'object') msgs = [data];
+          let msgs = Array.isArray(data) ? data : (data?.items || data?.messages || []);
+          if (!msgs.length && data && typeof data === 'object' && !Array.isArray(data)) msgs = [data];
           if (msgs.length > 0) {
             const existing = messageCache[b.id] || [];
             const combined = [...existing, ...msgs];
             messageCache[b.id] = combined;
             b.messages = combined;
             analyzeMessages(combined, b.id);
-            console.log(`✅ ${b.guestName}: ${msgs.length} msgs from ${endpoint}`);
-            return;
+            if (!workingEndpointPattern && typeof ep === 'object') {
+              workingEndpointPattern = ep.pat;
+              console.log('✅ Working endpoint pattern:', workingEndpointPattern);
+            }
+            return true;
           }
         }
-      } catch(e) { /* silent */ }
-    }
-  }
+      } catch(e) {}
+      return false;
+    };
 
-  // Process in parallel batches
-  for (let i = 0; i < toScan.length; i += BATCH_SIZE) {
-    const batch = toScan.slice(i, i + BATCH_SIZE);
-    connEl.textContent = `Scan messages... (${Math.min(i + BATCH_SIZE, toScan.length)}/${toScan.length})`;
-    await Promise.all(batch.map(b => tryFetchMessages(b)));
+    for (const ep of endpoints) {
+      if (await tryEndpoint(ep)) { found = true; break; }
+    }
+    if (!found) failCount++;
   }
 
   connEl.textContent = originalText;
