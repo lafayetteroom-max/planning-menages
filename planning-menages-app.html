@@ -437,50 +437,57 @@ async function fetchLodgifyData() {
     // Try bulk endpoint first (instant if server cache is warm)
     let allRawItems = [];
     let propsRaw = [];
+    var dbg = document.getElementById('debugBanner');
+    function dbgLog(msg) { if(dbg){dbg.style.display='block';dbg.textContent+=msg+' | ';} console.log(msg); }
+
     try {
       const bulkRes = await fetch('/api/bulk');
+      dbgLog('bulk:' + bulkRes.status);
       if (bulkRes.ok) {
         const bulkData = await bulkRes.json();
         propsRaw = bulkData.properties || [];
         allRawItems = bulkData.reservations || [];
-        console.log('Bulk loaded:', allRawItems.length, 'resa, cache age:', bulkData.cache_age, 's');
+        dbgLog('bulk props:' + propsRaw.length + ' resa:' + allRawItems.length);
       }
-    } catch(e) { console.log('Bulk failed:', e.message); }
+    } catch(e) { dbgLog('bulk err:' + e.message); }
 
     // Fallback: if bulk returned 0 reservations, fetch directly
     if (allRawItems.length === 0) {
-      console.log('Bulk empty, fallback to direct API...');
+      dbgLog('fallback...');
       connEl.textContent = 'Chargement direct...';
 
       // Properties
       try {
         const pRes = await fetch('/api/v2/properties', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } });
+        dbgLog('props:' + pRes.status);
         if (pRes.ok) propsRaw = await pRes.json();
-      } catch(e) {}
+      } catch(e) { dbgLog('props err:' + e.message); }
 
       // Reservations — all pages in parallel
       try {
         const firstRes = await fetch('/api/v1/reservation?offset=0&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } });
+        dbgLog('page1:' + firstRes.status);
         if (firstRes.ok) {
           const firstItems = await firstRes.json();
+          dbgLog('page1 items:' + (Array.isArray(firstItems) ? firstItems.length : 'not array'));
           if (Array.isArray(firstItems)) allRawItems = firstItems;
           if (allRawItems.length >= 50) {
-            const pagePromises = [];
-            for (let off = 50; off < 1100; off += 50) {
+            var pagePromises = [];
+            for (var off = 50; off < 1100; off += 50) {
               pagePromises.push(
                 fetch('/api/v1/reservation?offset=' + off + '&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } })
-                  .then(r => r.ok ? r.json() : []).catch(() => [])
+                  .then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; })
               );
             }
-            const pages = await Promise.all(pagePromises);
-            for (const page of pages) {
-              if (Array.isArray(page) && page.length > 0) allRawItems = allRawItems.concat(page);
+            var pages = await Promise.all(pagePromises);
+            for (var pi = 0; pi < pages.length; pi++) {
+              if (Array.isArray(pages[pi]) && pages[pi].length > 0) allRawItems = allRawItems.concat(pages[pi]);
               else break;
             }
+            dbgLog('total:' + allRawItems.length);
           }
         }
-      } catch(e) { console.log('Direct fetch failed:', e.message); }
-      console.log('Direct loaded:', allRawItems.length, 'reservations');
+      } catch(e) { dbgLog('fetch err:' + e.message); }
     }
 
     // Process properties
