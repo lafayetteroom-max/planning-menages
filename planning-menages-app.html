@@ -405,12 +405,13 @@ async function fetchLodgifyData() {
   try {
     // ===== FETCH PROPERTIES + RESERVATIONS + STATE in parallel =====
     connEl.textContent = 'Chargement...';
+    const dateFrom = fmt(addDays(today, -60)); // 60 jours en arriere = toutes les resa en cours + futures
     // Launch all 3 fetches simultaneously
     const propPromise = fetch('/api/v2/properties', {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
-    const resPromise = fetch('/api/v1/reservation?offset=0&limit=50', {
+    const resPromise = fetch(`/api/v1/reservation?offset=0&limit=50&arrival_start=${dateFrom}`, {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
@@ -477,7 +478,7 @@ async function fetchLodgifyData() {
       // If first page was full, fetch remaining pages
       if (firstItems.length >= PAGE_SIZE) {
         for (let offset = PAGE_SIZE; offset < 5000; offset += PAGE_SIZE) {
-          const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}`, {
+          const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
             headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
           });
           debugLog.push(`Page${offset/PAGE_SIZE+1}: HTTP ${resRes.status}`);
