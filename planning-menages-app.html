@@ -405,14 +405,12 @@ async function fetchLodgifyData() {
   try {
     // ===== FETCH PROPERTIES + RESERVATIONS + STATE in parallel =====
     connEl.textContent = 'Chargement...';
-    const dateFrom = fmt(addDays(today, -5));
-
     // Launch all 3 fetches simultaneously
     const propPromise = fetch('/api/v2/properties', {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
-    const resPromise = fetch(`/api/v1/reservation?offset=0&limit=50&arrival_start=${dateFrom}`, {
+    const resPromise = fetch('/api/v1/reservation?offset=0&limit=200', {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
@@ -451,9 +449,9 @@ async function fetchLodgifyData() {
 
     try {
       const seenIds = new Set();
-      const PAGE_SIZE = 50;
+      const PAGE_SIZE = 200;
 
-      // Fetch ALL reservations in one big call (faster than paginating)
+      // Fetch ALL reservations (no date filter — filter client-side)
       const firstJson = await resPromise;
       let firstItems = Array.isArray(firstJson) ? firstJson : [];
       if (!firstItems.length && firstJson && typeof firstJson === 'object') {
@@ -469,7 +467,7 @@ async function fetchLodgifyData() {
       // If first page was full, fetch remaining pages
       if (firstItems.length >= PAGE_SIZE) {
         for (let offset = PAGE_SIZE; offset < 5000; offset += PAGE_SIZE) {
-          const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
+          const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}`, {
             headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
           });
           if (!resRes.ok) break;
