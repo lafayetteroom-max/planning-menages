@@ -403,55 +403,92 @@ async function fetchLodgifyData() {
   connEl.textContent = 'Chargement...';
 
   try {
-    // ===== PROPERTIES: hardcoded (known) + background API refresh =====
-    // Use hardcoded config immediately — no need to wait for API
-    PROPERTIES = [
-      { id: 667331, name: "Royal Pearl", color: "#8a9bb5", colorClass: "prop-0",
-        extras: ['🛏️ Lit parapluie (bébé)'] },
-      { id: 494975, name: "Royal Rose", color: "#d4a0a0", colorClass: "prop-1",
-        extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] }
-    ];
-
-    // ===== FETCH RESERVATIONS — start immediately (no property fetch delay) =====
-    connEl.textContent = 'Reservations...';
-
-    // Charger les sejours arrives depuis J-5 max (pour capter les sejours en cours)
+    // ===== FETCH PROPERTIES + RESERVATIONS + STATE in parallel =====
+    connEl.textContent = 'Chargement...';
     const dateFrom = fmt(addDays(today, -5));
 
-    // Start state fetch in parallel (don't await yet)
+    // Launch all 3 fetches simultaneously
+    const propPromise = fetch('/api/v2/properties', {
+      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+    }).then(r => r.ok ? r.json() : []).catch(() => []);
+
+    const resPromise = fetch(`/api/v1/reservation?offset=0&limit=50&arrival_start=${dateFrom}`, {
+      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+    }).then(r => r.ok ? r.json() : []).catch(() => []);
+
     const statePromise = fetch('/state').then(r => r.ok ? r.json() : null).catch(() => null);
+
+    // Wait for properties first
+    const propsRaw = await propPromise;
+
+    // Known property config (colors + equipment)
+    const knownProps = {
+      'royal rose': { color: '#d4a0a0', extras: ['🛏️ Lit parapluie (bébé)', '🛏️ Matelas gonflable (3e pers.)'] },
+      'royal pearl': { color: '#8a9bb5', extras: ['🛏️ Lit parapluie (bébé)'] },
+    };
+    const fallbackColors = ["#1abc9c","#e67e22","#2ecc71","#9b59b6","#e74c3c","#34495e","#f39c12","#16a085"];
+
+    let propsList = Array.isArray(propsRaw) ? propsRaw : (propsRaw?.items || propsRaw?.results || []);
+    if (propsList.length > 0) {
+      let colorIdx = 0;
+      PROPERTIES = propsList.map((p, i) => {
+        const name = p.name || p.internal_name || p.Name || p.property_name || p.title || ("Logement " + (p.id || i));
+        const nameLower = name.trim().toLowerCase();
+        const known = knownProps[nameLower];
+        const color = known ? known.color : fallbackColors[colorIdx++ % fallbackColors.length];
+        const extras = known ? known.extras : [];
+        return { id: p.id || p.property_id || p.Id, name, color, colorClass: "prop-" + i, extras };
+      });
+      const propIdOrder = { 667331: 0, 494975: 1 };
+      PROPERTIES.sort((a, b) => (propIdOrder[a.id] ?? 99) - (propIdOrder[b.id] ?? 99));
+      PROPERTIES.forEach((p, i) => { p.colorClass = 'prop-' + i; });
+    }
+
+    // ===== FETCH REMAINING RESERVATIONS (first page already loading) =====
+    connEl.textContent = 'Reservations...';
 
     let allRawItems = [];
 
     try {
       const seenIds = new Set();
-      const PAGE_SIZE = 200;
+      const PAGE_SIZE = 50;
 
-      for (let offset = 0; offset < 2000; offset += PAGE_SIZE) {
-        const resUrl = `/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`;
-        const resRes = await fetch(resUrl, {
-          headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-        });
-        if (!resRes.ok) break;
-        const json = await resRes.json();
-        let pageItems = Array.isArray(json) ? json : [];
-        if (!pageItems.length && json && typeof json === 'object') {
-          for (const k of Object.keys(json)) {
-            if (Array.isArray(json[k])) { pageItems = json[k]; break; }
-          }
+      // Use first page already fetched in parallel
+      const firstJson = await resPromise;
+      let firstItems = Array.isArray(firstJson) ? firstJson : [];
+      if (!firstItems.length && firstJson && typeof firstJson === 'object') {
+        for (const k of Object.keys(firstJson)) {
+          if (Array.isArray(firstJson[k])) { firstItems = firstJson[k]; break; }
         }
-        if (pageItems.length === 0) break;
+      }
+      for (const item of firstItems) {
+        if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); }
+      }
+      connEl.textContent = `${allRawItems.length} reservations...`;
 
-        let newCount = 0;
-        for (const item of pageItems) {
-          if (!seenIds.has(item.id)) {
-            seenIds.add(item.id);
-            allRawItems.push(item);
-            newCount++;
+      // Fetch remaining pages sequentially
+      if (firstItems.length >= PAGE_SIZE) {
+        for (let offset = PAGE_SIZE; offset < 2000; offset += PAGE_SIZE) {
+          const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
+            headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+          });
+          if (!resRes.ok) break;
+          const json = await resRes.json();
+          let pageItems = Array.isArray(json) ? json : [];
+          if (!pageItems.length && json && typeof json === 'object') {
+            for (const k of Object.keys(json)) {
+              if (Array.isArray(json[k])) { pageItems = json[k]; break; }
+            }
           }
+          if (pageItems.length === 0) break;
+
+          let newCount = 0;
+          for (const item of pageItems) {
+            if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); newCount++; }
+          }
+          connEl.textContent = `${allRawItems.length} reservations...`;
+          if (newCount === 0) break;
         }
-        status.textContent = `${allRawItems.length} reservations...`;
-        if (newCount === 0) break;
       }
 
     } catch(fetchErr) {
