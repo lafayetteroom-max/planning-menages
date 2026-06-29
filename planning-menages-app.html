@@ -415,10 +415,30 @@ async function fetchLodgifyData() {
   connEl.textContent = 'Chargement...';
 
   try {
-    // ===== FETCH DATA =====
+    // ===== FETCH PROPERTIES + RESERVATIONS + STATE in parallel =====
     connEl.textContent = 'Chargement...';
 
-    const statePromise = fetch('/state').then(r => r.ok ? r.json() : null).catch(() => null);
+    const propPromise = fetch('/api/v2/properties', {
+      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+    }).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; });
+
+    const resPromise = fetch('/api/v1/reservation?offset=0&limit=50', {
+      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+    }).then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; });
+
+    const statePromise = fetch('/state').then(function(r) { return r.ok ? r.json() : null; }).catch(function() { return null; });
+
+    // Helper: unwrap API response (sometimes object instead of array)
+    function unwrapItems(json) {
+      if (Array.isArray(json)) return json;
+      if (json && typeof json === 'object') {
+        var ks = Object.keys(json);
+        for (var i = 0; i < ks.length; i++) {
+          if (Array.isArray(json[ks[i]])) return json[ks[i]];
+        }
+      }
+      return [];
+    }
 
     // Known property config (colors + equipment)
     const knownProps = {
@@ -427,89 +447,9 @@ async function fetchLodgifyData() {
     };
     const fallbackColors = ["#1abc9c","#e67e22","#2ecc71","#9b59b6","#e74c3c","#34495e","#f39c12","#16a085"];
 
-    // Try bulk endpoint first (instant if server cache is warm)
-    let allRawItems = [];
-    let propsRaw = [];
-    function dbgLog(msg) { console.log(msg); }
-
-    try {
-      const bulkRes = await fetch('/api/bulk');
-      dbgLog('bulk:' + bulkRes.status);
-      if (bulkRes.ok) {
-        const bulkData = await bulkRes.json();
-        propsRaw = bulkData.properties || [];
-        allRawItems = bulkData.reservations || [];
-        dbgLog('bulk props:' + propsRaw.length + ' resa:' + allRawItems.length);
-      }
-    } catch(e) { dbgLog('bulk err:' + e.message); }
-
-    // Fallback: if bulk returned 0 reservations, fetch directly
-    if (allRawItems.length === 0) {
-      dbgLog('fallback...');
-      connEl.textContent = 'Chargement direct...';
-
-      // Properties
-      try {
-        const pRes = await fetch('/api/v2/properties', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } });
-        dbgLog('props:' + pRes.status);
-        if (pRes.ok) propsRaw = await pRes.json();
-      } catch(e) { dbgLog('props err:' + e.message); }
-
-      // Reservations — all pages in parallel
-      try {
-        const firstRes = await fetch('/api/v1/reservation?offset=0&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } });
-        dbgLog('page1:' + firstRes.status);
-        if (firstRes.ok) {
-          var firstJson = await firstRes.json();
-          var firstItems = Array.isArray(firstJson) ? firstJson : [];
-          if (!firstItems.length && firstJson && typeof firstJson === 'object') {
-            var keys = Object.keys(firstJson);
-            for (var ki = 0; ki < keys.length; ki++) {
-              if (Array.isArray(firstJson[keys[ki]])) { firstItems = firstJson[keys[ki]]; break; }
-            }
-          }
-          dbgLog('p1:' + firstItems.length);
-          allRawItems = firstItems;
-          // Load remaining pages in batches of 4 (works on mobile + desktop)
-          function unwrapPage(json) {
-            var items = Array.isArray(json) ? json : [];
-            if (!items.length && json && typeof json === 'object') {
-              var ks = Object.keys(json);
-              for (var i = 0; i < ks.length; i++) {
-                if (Array.isArray(json[ks[i]])) return json[ks[i]];
-              }
-            }
-            return items;
-          }
-          var BATCH = 4;
-          var done = false;
-          var nextOffset = 50;
-          while (!done && nextOffset < 1200) {
-            var batch = [];
-            for (var bi = 0; bi < BATCH && nextOffset < 1200; bi++) {
-              batch.push(
-                fetch('/api/v1/reservation?offset=' + nextOffset + '&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } })
-                  .then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; })
-              );
-              nextOffset += 50;
-            }
-            try {
-              var results = await Promise.all(batch);
-              for (var ri = 0; ri < results.length; ri++) {
-                var pg = unwrapPage(results[ri]);
-                if (pg.length === 0) { done = true; break; }
-                allRawItems = allRawItems.concat(pg);
-              }
-              connEl.textContent = allRawItems.length + ' reservations...';
-            } catch(be) { dbgLog('batch err:' + be.message); done = true; }
-          }
-          dbgLog('tot:' + allRawItems.length);
-        }
-      } catch(e) { dbgLog('fetch err:' + e.message); }
-    }
-
-    // Process properties
-    let propsList = Array.isArray(propsRaw) ? propsRaw : (propsRaw.items || propsRaw.results || []);
+    // Wait for properties
+    const propsRaw = await propPromise;
+    let propsList = Array.isArray(propsRaw) ? propsRaw : (propsRaw && propsRaw.items ? propsRaw.items : propsRaw && propsRaw.results ? propsRaw.results : []);
     if (propsList.length > 0) {
       let colorIdx = 0;
       PROPERTIES = propsList.map((p, i) => {
@@ -521,11 +461,36 @@ async function fetchLodgifyData() {
         return { id: p.id || p.property_id || p.Id, name, color, colorClass: "prop-" + i, extras };
       });
       const propIdOrder = { 667331: 0, 494975: 1 };
-      PROPERTIES.sort((a, b) => (propIdOrder[a.id] ?? 99) - (propIdOrder[b.id] ?? 99));
+      PROPERTIES.sort((a, b) => (propIdOrder[a.id] != null ? propIdOrder[a.id] : 99) - (propIdOrder[b.id] != null ? propIdOrder[b.id] : 99));
       PROPERTIES.forEach((p, i) => { p.colorClass = 'prop-' + i; });
     }
 
+    // Wait for first page of reservations
+    connEl.textContent = 'Reservations...';
+    let allRawItems = unwrapItems(await resPromise);
+    const seenIds = new Set();
+    allRawItems.forEach(function(item) { seenIds.add(item.id); });
     connEl.textContent = allRawItems.length + ' reservations...';
+
+    // Load ALL remaining pages in parallel (fast on desktop + mobile)
+    if (allRawItems.length >= 50) {
+      var pagePromises = [];
+      for (var off = 50; off < 1200; off += 50) {
+        pagePromises.push(
+          fetch('/api/v1/reservation?offset=' + off + '&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } })
+            .then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; })
+        );
+      }
+      var allPages = await Promise.all(pagePromises);
+      for (var ri = 0; ri < allPages.length; ri++) {
+        var pg = unwrapItems(allPages[ri]);
+        if (pg.length === 0) break;
+        for (var pi = 0; pi < pg.length; pi++) {
+          if (!seenIds.has(pg[pi].id)) { seenIds.add(pg[pi].id); allRawItems.push(pg[pi]); }
+        }
+      }
+      connEl.textContent = allRawItems.length + ' reservations...';
+    }
 
     if (allRawItems.length > 0) {
       const items = allRawItems;
