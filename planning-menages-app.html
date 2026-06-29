@@ -470,25 +470,38 @@ async function fetchLodgifyData() {
           }
           dbgLog('p1:' + firstItems.length);
           allRawItems = firstItems;
-          // Load remaining pages one by one (Safari mobile compatible)
-          var pgNum = 2;
-          while (allRawItems.length % 50 === 0 && allRawItems.length < 1200) {
-            try {
-              var pgRes = await fetch('/api/v1/reservation?offset=' + allRawItems.length + '&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } });
-              if (!pgRes.ok) break;
-              var pgJson = await pgRes.json();
-              var pgItems = Array.isArray(pgJson) ? pgJson : [];
-              if (!pgItems.length && pgJson && typeof pgJson === 'object') {
-                var pkeys = Object.keys(pgJson);
-                for (var pki = 0; pki < pkeys.length; pki++) {
-                  if (Array.isArray(pgJson[pkeys[pki]])) { pgItems = pgJson[pkeys[pki]]; break; }
-                }
+          // Load remaining pages in batches of 4 (works on mobile + desktop)
+          function unwrapPage(json) {
+            var items = Array.isArray(json) ? json : [];
+            if (!items.length && json && typeof json === 'object') {
+              var ks = Object.keys(json);
+              for (var i = 0; i < ks.length; i++) {
+                if (Array.isArray(json[ks[i]])) return json[ks[i]];
               }
-              if (pgItems.length === 0) break;
-              allRawItems = allRawItems.concat(pgItems);
+            }
+            return items;
+          }
+          var BATCH = 4;
+          var done = false;
+          var nextOffset = 50;
+          while (!done && nextOffset < 1200) {
+            var batch = [];
+            for (var bi = 0; bi < BATCH && nextOffset < 1200; bi++) {
+              batch.push(
+                fetch('/api/v1/reservation?offset=' + nextOffset + '&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } })
+                  .then(function(r) { return r.ok ? r.json() : []; }).catch(function() { return []; })
+              );
+              nextOffset += 50;
+            }
+            try {
+              var results = await Promise.all(batch);
+              for (var ri = 0; ri < results.length; ri++) {
+                var pg = unwrapPage(results[ri]);
+                if (pg.length === 0) { done = true; break; }
+                allRawItems = allRawItems.concat(pg);
+              }
               connEl.textContent = allRawItems.length + ' reservations...';
-              pgNum++;
-            } catch(pe) { dbgLog('pg err:' + pe.message); break; }
+            } catch(be) { dbgLog('batch err:' + be.message); done = true; }
           }
           dbgLog('tot:' + allRawItems.length);
         }
