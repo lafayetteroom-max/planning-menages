@@ -691,71 +691,62 @@ async function scanMessagesInBackground(apiKey) {
   // First render with notes-based alerts
   render();
 
-  // === Step 2: Try to fetch thread messages — auto-detect working endpoint ===
+  // === Step 2: Try to fetch thread messages — test endpoints in PARALLEL ===
   connEl.textContent = 'Scan messages...';
-  let workingEndpointPattern = null; // Once we find one that works, reuse it
-  let failCount = 0;
-  const MAX_FAILS = 5; // After 5 bookings with no messages, stop trying API
 
-  for (let i = 0; i < toScan.length; i++) {
-    const b = toScan[i];
-    if (failCount >= MAX_FAILS && !workingEndpointPattern) break; // No endpoint works, stop
-
-    connEl.textContent = `Scan messages... (${i + 1}/${toScan.length})`;
-    const raw = b._raw;
-    const threadUid = raw?.thread_uid;
-    let airbnbThreadId = null;
+  const tryEndpoint = async (b, url) => {
     try {
-      const srcData = JSON.parse(raw?.source_text || '{}');
-      airbnbThreadId = srcData.threadId;
-    } catch(e) {}
-
-    const threadIds = [threadUid, airbnbThreadId].filter(Boolean);
-
-    // Build endpoint list — if we already found a working pattern, only try that one
-    let endpoints = [];
-    if (workingEndpointPattern) {
-      for (const tid of [...new Set(threadIds)]) {
-        endpoints.push(workingEndpointPattern.replace('{tid}', tid));
-      }
-    } else {
-      for (const tid of [...new Set(threadIds)]) {
-        endpoints.push({ url: `/api/v1/reservation/threads/${tid}/messages`, pat: `/api/v1/reservation/threads/{tid}/messages` });
-        endpoints.push({ url: `/api/v1/reservation/threads/${tid}`, pat: `/api/v1/reservation/threads/{tid}` });
-      }
-      endpoints.push({ url: `/api/v1/reservation/booking/${b.id}/messages`, pat: `/api/v1/reservation/booking/{tid}/messages` });
-    }
-
-    let found = false;
-    const tryEndpoint = async (ep) => {
-      const url = typeof ep === 'string' ? ep : ep.url;
-      try {
-        const res = await fetch(url, { headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' } });
-        if (res.ok) {
-          const data = await res.json();
-          let msgs = Array.isArray(data) ? data : (data?.items || data?.messages || []);
-          if (!msgs.length && data && typeof data === 'object' && !Array.isArray(data)) msgs = [data];
-          if (msgs.length > 0) {
-            const existing = messageCache[b.id] || [];
-            const combined = [...existing, ...msgs];
-            messageCache[b.id] = combined;
-            b.messages = combined;
-            analyzeMessages(combined, b.id);
-            if (!workingEndpointPattern && typeof ep === 'object') {
-              workingEndpointPattern = ep.pat;
-              console.log('✅ Working endpoint pattern:', workingEndpointPattern);
-            }
-            return true;
-          }
+      const res = await fetch(url, { headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' } });
+      if (res.ok) {
+        const data = await res.json();
+        let msgs = Array.isArray(data) ? data : (data?.items || data?.messages || []);
+        if (!msgs.length && data && typeof data === 'object' && !Array.isArray(data)) msgs = [data];
+        if (msgs.length > 0) {
+          const existing = messageCache[b.id] || [];
+          const combined = [...existing, ...msgs];
+          messageCache[b.id] = combined;
+          b.messages = combined;
+          analyzeMessages(combined, b.id);
+          return true;
         }
-      } catch(e) {}
-      return false;
-    };
+      }
+    } catch(e) {}
+    return false;
+  };
 
-    for (const ep of endpoints) {
-      if (await tryEndpoint(ep)) { found = true; break; }
-    }
-    if (!found) failCount++;
+  // Test all bookings in parallel batches of 10
+  const BATCH = 10;
+  let anyWorked = false;
+  for (let i = 0; i < toScan.length; i += BATCH) {
+    const batch = toScan.slice(i, i + BATCH);
+    connEl.textContent = `Scan messages... (${i}/${toScan.length})`;
+
+    const promises = batch.map(b => {
+      const raw = b._raw;
+      const threadUid = raw?.thread_uid;
+      let airbnbThreadId = null;
+      try { airbnbThreadId = JSON.parse(raw?.source_text || '{}').threadId; } catch(e) {}
+      const tids = [threadUid, airbnbThreadId].filter(Boolean);
+      const urls = [];
+      for (const tid of [...new Set(tids)]) {
+        urls.push(`/api/v1/reservation/threads/${tid}/messages`);
+        urls.push(`/api/v1/reservation/threads/${tid}`);
+      }
+      urls.push(`/api/v1/reservation/booking/${b.id}/messages`);
+      // Try all endpoints for this booking, return on first success
+      return (async () => {
+        for (const url of urls) {
+          if (await tryEndpoint(b, url)) return true;
+        }
+        return false;
+      })();
+    });
+
+    const results = await Promise.all(promises);
+    if (results.some(r => r)) anyWorked = true;
+
+    // If first batch all failed, no point continuing
+    if (i === 0 && !anyWorked) break;
   }
 
   connEl.textContent = originalText;
