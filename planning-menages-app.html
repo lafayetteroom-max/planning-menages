@@ -556,13 +556,33 @@ async function fetchLodgifyData() {
             messages: [],
             _raw: r // garder les donnees brutes pour extraire notes/commentaires
           };
-        }).filter(b => b.checkin && b.checkout && !isNaN(b.checkin.getTime()) && !isNaN(b.checkout.getTime())
-          && b.propertyId && PROPERTIES.some(p => p.id == b.propertyId)
-          && b.checkout >= addDays(today, -5)
-          && !/cancel|decline|annul/i.test(b.status)); // Exclure annulees
+        });
+
+        // Debug: log why bookings get filtered
+        const propIds = PROPERTIES.map(p => p.id);
+        const beforeFilter = bookings.length;
+        let reasons = { noDates: 0, noPropId: 0, propMismatch: 0, tooOld: 0, cancelled: 0 };
+        let mismatchSamples = [];
+        bookings = bookings.filter(b => {
+          if (!b.checkin || !b.checkout || isNaN(b.checkin.getTime()) || isNaN(b.checkout.getTime())) { reasons.noDates++; return false; }
+          if (!b.propertyId) { reasons.noPropId++; return false; }
+          if (!PROPERTIES.some(p => p.id == b.propertyId)) { reasons.propMismatch++; if (mismatchSamples.length < 3) mismatchSamples.push(b.propertyId + '=' + b.guestName); return false; }
+          if (b.checkout < addDays(today, -5)) { reasons.tooOld++; return false; }
+          if (/cancel|decline|annul/i.test(b.status)) { reasons.cancelled++; return false; }
+          return true;
+        });
 
         bookings.sort((a, b) => a.checkin - b.checkin);
-        console.log('Parsed bookings:', bookings.length);
+
+        // Show debug banner on page (temporary)
+        const debugBanner = document.createElement('div');
+        debugBanner.style.cssText = 'background:#fff3cd;border:2px solid #f0ad4e;padding:12px;margin:8px 0;border-radius:8px;font-size:13px;font-family:monospace;';
+        debugBanner.innerHTML = `<strong>DEBUG</strong> (a supprimer)<br>
+          Props: ${PROPERTIES.map(p => p.id + '="' + p.name + '"').join(', ')}<br>
+          Raw items: ${beforeFilter} | After filter: ${bookings.length}<br>
+          Filtres: ${JSON.stringify(reasons)}<br>
+          ${mismatchSamples.length > 0 ? 'Prop mismatch samples: ' + mismatchSamples.join(', ') + ' (vs IDs: ' + propIds.join(',') + ')' : ''}`;
+        document.querySelector('.header')?.after(debugBanner);
         if (bookings.length > 0) {
           console.log('Range:', fmt(bookings[0].checkin), '→', fmt(bookings[bookings.length-1].checkout));
           // Auto-navigate calendar to the most recent booking
@@ -613,13 +633,9 @@ async function fetchLodgifyData() {
 
   } catch (e) {
     console.error('Lodgify error:', e);
-    status.className = 'api-status error';
-    status.textContent = e.message;
-    if (e.message.includes('Failed to fetch')) {
-      status.textContent = 'Impossible de joindre le serveur local. Verifiez que server.py est bien lance (python3 server.py).';
-    }
     connEl.className = 'connection-status';
-    connEl.textContent = 'Erreur connexion';
+    connEl.textContent = 'Erreur: ' + e.message;
+    connEl.style.color = '#e74c3c';
   }
 }
 
