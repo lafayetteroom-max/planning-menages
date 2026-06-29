@@ -464,42 +464,33 @@ async function fetchLodgifyData() {
 
     try {
       const seenIds = new Set();
-
-      // Fetch pages in parallel (3 at a time) for speed
       const PAGE_SIZE = 50;
-      const MAX_PAGES = 10; // 500 max reservations
-      const PARALLEL = 3;
 
-      for (let batch = 0; batch < MAX_PAGES; batch += PARALLEL) {
-        const fetches = [];
-        for (let p = 0; p < PARALLEL && (batch + p) < MAX_PAGES; p++) {
-          const offset = (batch + p) * PAGE_SIZE;
-          fetches.push(
-            fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
-              headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-            }).then(r => r.ok ? r.json() : []).catch(() => [])
-          );
-        }
-        const results = await Promise.all(fetches);
-
-        let batchEmpty = true;
-        for (const json of results) {
-          let pageItems = Array.isArray(json) ? json : [];
-          if (!pageItems.length && json && typeof json === 'object') {
-            for (const k of Object.keys(json)) {
-              if (Array.isArray(json[k])) { pageItems = json[k]; break; }
-            }
+      for (let offset = 0; offset < 2000; offset += PAGE_SIZE) {
+        const resUrl = `/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`;
+        const resRes = await fetch(resUrl, {
+          headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+        });
+        if (!resRes.ok) break;
+        const json = await resRes.json();
+        let pageItems = Array.isArray(json) ? json : [];
+        if (!pageItems.length && json && typeof json === 'object') {
+          for (const k of Object.keys(json)) {
+            if (Array.isArray(json[k])) { pageItems = json[k]; break; }
           }
-          for (const item of pageItems) {
-            if (!seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              allRawItems.push(item);
-              batchEmpty = false;
-            }
+        }
+        if (pageItems.length === 0) break;
+
+        let newCount = 0;
+        for (const item of pageItems) {
+          if (!seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            allRawItems.push(item);
+            newCount++;
           }
         }
         status.textContent = `${allRawItems.length} reservations...`;
-        if (batchEmpty) break; // No more data
+        if (newCount === 0) break;
       }
 
     } catch(fetchErr) {
