@@ -453,19 +453,7 @@ async function fetchLodgifyData() {
       const seenIds = new Set();
       const PAGE_SIZE = 50;
 
-      // Helper: check if a raw item is relevant (recent/future, not cancelled)
-      const cutoffDate = fmt(addDays(today, -5));
-      function isRelevant(r) {
-        const co = r.departure ?? r.date_departure ?? r.check_out
-          ?? r.rooms?.[0]?.date_departure ?? r.rooms?.[0]?.departure ?? null;
-        if (!co) return false;
-        // Compare as dates (handles ISO strings with time)
-        if (new Date(co) < addDays(today, -5)) return false;
-        if (/cancel|decline|annul/i.test(r.status || '')) return false;
-        return true;
-      }
-
-      // Use first page already fetched in parallel
+      // Fetch ALL reservations in one big call (faster than paginating)
       const firstJson = await resPromise;
       let firstItems = Array.isArray(firstJson) ? firstJson : [];
       if (!firstItems.length && firstJson && typeof firstJson === 'object') {
@@ -473,15 +461,13 @@ async function fetchLodgifyData() {
           if (Array.isArray(firstJson[k])) { firstItems = firstJson[k]; break; }
         }
       }
-      let relevantCount = 0;
       for (const item of firstItems) {
-        if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); if (isRelevant(item)) relevantCount++; }
+        if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); }
       }
-      connEl.textContent = `${relevantCount} reservations...`;
+      connEl.textContent = `${allRawItems.length} reservations...`;
 
-      // Fetch remaining pages — stop after 2 consecutive pages with no relevant items
+      // If first page was full, fetch remaining pages
       if (firstItems.length >= PAGE_SIZE) {
-        let emptyPages = 0;
         for (let offset = PAGE_SIZE; offset < 5000; offset += PAGE_SIZE) {
           const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
             headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
@@ -496,15 +482,12 @@ async function fetchLodgifyData() {
           }
           if (pageItems.length === 0) break;
 
-          let pageRelevant = 0;
+          let newCount = 0;
           for (const item of pageItems) {
-            if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); if (isRelevant(item)) { relevantCount++; pageRelevant++; } }
+            if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); newCount++; }
           }
-          connEl.textContent = `${relevantCount} reservations...`;
-
-          // If 2 consecutive pages have 0 relevant items, stop — we've passed the useful data
-          if (pageRelevant === 0) { emptyPages++; if (emptyPages >= 2) break; }
-          else emptyPages = 0;
+          connEl.textContent = `${allRawItems.length} reservations...`;
+          if (newCount === 0) break;
         }
       }
 
