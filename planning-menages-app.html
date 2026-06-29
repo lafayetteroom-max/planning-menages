@@ -403,21 +403,13 @@ async function fetchLodgifyData() {
   connEl.textContent = 'Chargement...';
 
   try {
-    // ===== FETCH PROPERTIES + RESERVATIONS + STATE in parallel =====
+    // ===== FETCH BULK DATA + STATE in parallel =====
     connEl.textContent = 'Chargement...';
-    // Launch all 3 fetches simultaneously
-    const propPromise = fetch('/api/v2/properties', {
-      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-    }).then(r => r.ok ? r.json() : []).catch(() => []);
 
-    const resPromise = fetch('/api/v1/reservation?offset=0&limit=50', {
-      headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-    }).then(r => r.ok ? r.json() : []).catch(() => []);
-
+    const bulkPromise = fetch('/api/bulk').then(r => r.ok ? r.json() : null).catch(() => null);
     const statePromise = fetch('/state').then(r => r.ok ? r.json() : null).catch(() => null);
 
-    // Wait for properties first
-    const propsRaw = await propPromise;
+    const bulkData = await bulkPromise;
 
     // Known property config (colors + equipment)
     const knownProps = {
@@ -426,6 +418,7 @@ async function fetchLodgifyData() {
     };
     const fallbackColors = ["#1abc9c","#e67e22","#2ecc71","#9b59b6","#e74c3c","#34495e","#f39c12","#16a085"];
 
+    const propsRaw = bulkData?.properties || [];
     let propsList = Array.isArray(propsRaw) ? propsRaw : (propsRaw?.items || propsRaw?.results || []);
     if (propsList.length > 0) {
       let colorIdx = 0;
@@ -442,62 +435,10 @@ async function fetchLodgifyData() {
       PROPERTIES.forEach((p, i) => { p.colorClass = 'prop-' + i; });
     }
 
-    // ===== FETCH REMAINING RESERVATIONS (first page already loading) =====
+    // ===== RESERVATIONS from bulk =====
     connEl.textContent = 'Reservations...';
-
-    let allRawItems = [];
-
-    try {
-      const seenIds = new Set();
-      const PAGE_SIZE = 50;
-      const MAX_ITEMS = 1100; // safety cap
-
-      // Page 1 already launched in parallel with properties
-      const firstJson = await resPromise;
-      let firstItems = Array.isArray(firstJson) ? firstJson : [];
-      if (!firstItems.length && firstJson && typeof firstJson === 'object') {
-        for (const k of Object.keys(firstJson)) {
-          if (Array.isArray(firstJson[k])) { firstItems = firstJson[k]; break; }
-        }
-      }
-      for (const item of firstItems) {
-        if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); }
-      }
-      connEl.textContent = `${allRawItems.length} reservations...`;
-
-      // Launch ALL remaining pages in PARALLEL (much faster than sequential)
-      if (firstItems.length >= PAGE_SIZE) {
-        const pagePromises = [];
-        for (let offset = PAGE_SIZE; offset < MAX_ITEMS; offset += PAGE_SIZE) {
-          pagePromises.push(
-            fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}`, {
-              headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-            }).then(r => r.ok ? r.json() : []).catch(() => [])
-          );
-        }
-        const allPages = await Promise.all(pagePromises);
-        for (const json of allPages) {
-          let pageItems = Array.isArray(json) ? json : [];
-          if (!pageItems.length && json && typeof json === 'object') {
-            for (const k of Object.keys(json)) {
-              if (Array.isArray(json[k])) { pageItems = json[k]; break; }
-            }
-          }
-          if (pageItems.length === 0) break; // no more data
-          for (const item of pageItems) {
-            if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); }
-          }
-        }
-        connEl.textContent = `${allRawItems.length} reservations...`;
-      }
-
-      console.log('Fetched', allRawItems.length, 'raw reservations');
-      document.title = 'Planning Ménages';
-
-    } catch(fetchErr) {
-      console.error('Fetch error:', fetchErr);
-      console.error('Fetch error:', fetchErr.message);
-    }
+    let allRawItems = bulkData?.reservations || [];
+    console.log('Bulk loaded:', allRawItems.length, 'reservations, cache age:', bulkData?.cache_age, 's');
 
     if (allRawItems.length > 0) {
       const items = allRawItems;
