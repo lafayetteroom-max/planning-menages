@@ -141,7 +141,11 @@ def save_state(state):
 @app.route("/index.html")
 def serve_dashboard():
     html_path = os.path.join(DIR, "planning-menages-app.html")
-    return send_file(html_path, mimetype="text/html")
+    resp = send_file(html_path, mimetype="text/html")
+    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route("/state", methods=["GET"])
@@ -159,8 +163,8 @@ def update_state():
     incoming = request.get_json(force=True)
     with state_lock:
         state = load_state()
-        for key in ["cleaningStatus", "cleaningNotes", "checklistState",
-                     "customTimes", "customGuests"]:
+        for key in ["cleaningStatus", "cleaningNotes", "calendarNotes",
+                     "checklistState", "customTimes", "customGuests"]:
             if key in incoming:
                 if not isinstance(state.get(key), dict):
                     state[key] = {}
