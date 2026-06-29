@@ -477,10 +477,10 @@ async function fetchLodgifyData() {
       }
       connEl.textContent = `${relevantCount} reservations...`;
 
-      // Fetch remaining pages — stop early if no more relevant bookings found
+      // Fetch remaining pages (max 3 extra pages = 200 total items)
       if (firstItems.length >= PAGE_SIZE) {
-        let emptyPages = 0; // pages with 0 relevant items
-        for (let offset = PAGE_SIZE; offset < 2000; offset += PAGE_SIZE) {
+        let emptyPages = 0;
+        for (let offset = PAGE_SIZE; offset < PAGE_SIZE * 4; offset += PAGE_SIZE) {
           const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
             headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
           });
@@ -587,7 +587,7 @@ async function fetchLodgifyData() {
             });
             console.log('Auto-added property:', b.propertyId, b.propertyName);
           }
-          if (b.checkout < addDays(today, -5)) return false;
+          if (b.checkout < addDays(today, -5) || b.checkin > addDays(today, 30)) return false;
           if (/cancel|decline|annul/i.test(b.status)) return false;
           return true;
         });
