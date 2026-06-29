@@ -405,13 +405,12 @@ async function fetchLodgifyData() {
   try {
     // ===== FETCH PROPERTIES + RESERVATIONS + STATE in parallel =====
     connEl.textContent = 'Chargement...';
-    const dateFrom = fmt(addDays(today, -60)); // 60 jours en arriere = toutes les resa en cours + futures
     // Launch all 3 fetches simultaneously
     const propPromise = fetch('/api/v2/properties', {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
-    const resPromise = fetch(`/api/v1/reservation?offset=0&limit=50&arrival_start=${dateFrom}`, {
+    const resPromise = fetch('/api/v1/reservation?offset=0&limit=50', {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
@@ -451,60 +450,49 @@ async function fetchLodgifyData() {
     try {
       const seenIds = new Set();
       const PAGE_SIZE = 50;
+      const MAX_ITEMS = 1100; // safety cap
 
-      // Fetch ALL reservations (no date filter — filter client-side)
-      let debugLog = [];
-      const res1 = await fetch('/api/v1/reservation?offset=0&limit=50', {
-        headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-      });
-      debugLog.push(`Page1: HTTP ${res1.status}`);
-      if (!res1.ok) {
-        const errText = await res1.text().catch(() => '');
-        debugLog.push(`Err: ${errText.substring(0, 200)}`);
-      }
-      const firstJson = res1.ok ? await res1.json() : [];
+      // Page 1 already launched in parallel with properties
+      const firstJson = await resPromise;
       let firstItems = Array.isArray(firstJson) ? firstJson : [];
       if (!firstItems.length && firstJson && typeof firstJson === 'object') {
         for (const k of Object.keys(firstJson)) {
           if (Array.isArray(firstJson[k])) { firstItems = firstJson[k]; break; }
         }
       }
-      debugLog.push(`Page1 items: ${firstItems.length}`);
       for (const item of firstItems) {
         if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); }
       }
       connEl.textContent = `${allRawItems.length} reservations...`;
 
-      // If first page was full, fetch remaining pages
+      // Launch ALL remaining pages in PARALLEL (much faster than sequential)
       if (firstItems.length >= PAGE_SIZE) {
-        for (let offset = PAGE_SIZE; offset < 5000; offset += PAGE_SIZE) {
-          const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
-            headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-          });
-          debugLog.push(`Page${offset/PAGE_SIZE+1}: HTTP ${resRes.status}`);
-          if (!resRes.ok) break;
-          const json = await resRes.json();
+        const pagePromises = [];
+        for (let offset = PAGE_SIZE; offset < MAX_ITEMS; offset += PAGE_SIZE) {
+          pagePromises.push(
+            fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}`, {
+              headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+            }).then(r => r.ok ? r.json() : []).catch(() => [])
+          );
+        }
+        const allPages = await Promise.all(pagePromises);
+        for (const json of allPages) {
           let pageItems = Array.isArray(json) ? json : [];
           if (!pageItems.length && json && typeof json === 'object') {
             for (const k of Object.keys(json)) {
               if (Array.isArray(json[k])) { pageItems = json[k]; break; }
             }
           }
-          debugLog.push(`Page${offset/PAGE_SIZE+1} items: ${pageItems.length}`);
-          if (pageItems.length === 0) break;
-
-          let newCount = 0;
+          if (pageItems.length === 0) break; // no more data
           for (const item of pageItems) {
-            if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); newCount++; }
+            if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); }
           }
-          connEl.textContent = `${allRawItems.length} reservations...`;
-          if (newCount === 0) break;
         }
+        connEl.textContent = `${allRawItems.length} reservations...`;
       }
 
-      // Show debug info on page
-      console.log('DEBUG FETCH:', debugLog.join(' | '));
-      document.title = `DEBUG: ${allRawItems.length} raw | ${debugLog.join(' | ')}`;
+      console.log('Fetched', allRawItems.length, 'raw reservations');
+      document.title = `DEBUG: ${allRawItems.length} raw items loaded`;
 
     } catch(fetchErr) {
       console.error('Fetch error:', fetchErr);
