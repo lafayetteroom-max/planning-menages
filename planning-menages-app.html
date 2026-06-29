@@ -410,7 +410,7 @@ async function fetchLodgifyData() {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
-    const resPromise = fetch('/api/v1/reservation?offset=0&limit=200', {
+    const resPromise = fetch('/api/v1/reservation?offset=0&limit=50', {
       headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
     }).then(r => r.ok ? r.json() : []).catch(() => []);
 
@@ -449,11 +449,11 @@ async function fetchLodgifyData() {
 
     try {
       const seenIds = new Set();
-      const PAGE_SIZE = 200;
+      const PAGE_SIZE = 50;
 
       // Fetch ALL reservations (no date filter — filter client-side)
       let debugLog = [];
-      const res1 = await fetch('/api/v1/reservation?offset=0&limit=200', {
+      const res1 = await fetch('/api/v1/reservation?offset=0&limit=50', {
         headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
       });
       debugLog.push(`Page1: HTTP ${res1.status}`);
