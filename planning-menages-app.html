@@ -537,11 +537,12 @@ async function fetchLodgifyData() {
           else if (src.includes('Vrbo') || src.includes('HomeAway')) src = 'Vrbo';
 
           const matchedProp = PROPERTIES.find(p => p.id == propId);
+          const rawPropName = r.property_name || r.rooms?.[0]?.name || '';
 
           return {
             id: r.id ?? i,
             propertyId: propId,
-            propertyName: matchedProp ? matchedProp.name : ("Logement " + propId),
+            propertyName: matchedProp ? matchedProp.name : (rawPropName || "Logement " + propId),
             guestName: gName,
             checkin: ci ? new Date(ci) : null,
             checkout: co ? new Date(co) : null,
@@ -556,17 +557,23 @@ async function fetchLodgifyData() {
           };
         });
 
-        // Debug: log why bookings get filtered
-        const propIds = PROPERTIES.map(p => p.id);
-        const beforeFilter = bookings.length;
-        let reasons = { noDates: 0, noPropId: 0, propMismatch: 0, tooOld: 0, cancelled: 0 };
-        let mismatchSamples = [];
+        // Filter bookings — auto-add unknown properties instead of rejecting
+        const fallbackColorsB = ["#1abc9c","#e67e22","#2ecc71","#9b59b6","#e74c3c"];
         bookings = bookings.filter(b => {
-          if (!b.checkin || !b.checkout || isNaN(b.checkin.getTime()) || isNaN(b.checkout.getTime())) { reasons.noDates++; return false; }
-          if (!b.propertyId) { reasons.noPropId++; return false; }
-          if (!PROPERTIES.some(p => p.id == b.propertyId)) { reasons.propMismatch++; if (mismatchSamples.length < 3) mismatchSamples.push(b.propertyId + '=' + b.guestName); return false; }
-          if (b.checkout < addDays(today, -5)) { reasons.tooOld++; return false; }
-          if (/cancel|decline|annul/i.test(b.status)) { reasons.cancelled++; return false; }
+          if (!b.checkin || !b.checkout || isNaN(b.checkin.getTime()) || isNaN(b.checkout.getTime())) return false;
+          if (!b.propertyId) return false;
+          // Auto-add property if not yet known
+          if (!PROPERTIES.some(p => p.id == b.propertyId)) {
+            const idx = PROPERTIES.length;
+            PROPERTIES.push({
+              id: b.propertyId, name: b.propertyName || ("Logement " + b.propertyId),
+              color: fallbackColorsB[idx % fallbackColorsB.length],
+              colorClass: "prop-" + idx, extras: []
+            });
+            console.log('Auto-added property:', b.propertyId, b.propertyName);
+          }
+          if (b.checkout < addDays(today, -5)) return false;
+          if (/cancel|decline|annul/i.test(b.status)) return false;
           return true;
         });
 
