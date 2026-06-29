@@ -125,9 +125,9 @@ def proxy_lodgify(lodgify_path):
     try:
         if request.method == "POST":
             ext_resp = ext_requests.post(lodgify_url, headers=headers,
-                                         data=request.get_data(), timeout=15)
+                                         data=request.get_data(), timeout=60)
         else:
-            ext_resp = ext_requests.get(lodgify_url, headers=headers, timeout=15)
+            ext_resp = ext_requests.get(lodgify_url, headers=headers, timeout=60)
 
         resp = Response(ext_resp.content, status=ext_resp.status_code)
         resp.headers["Content-Type"] = ext_resp.headers.get("Content-Type", "application/json")

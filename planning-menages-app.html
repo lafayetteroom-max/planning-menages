@@ -452,13 +452,23 @@ async function fetchLodgifyData() {
       const PAGE_SIZE = 200;
 
       // Fetch ALL reservations (no date filter — filter client-side)
-      const firstJson = await resPromise;
+      let debugLog = [];
+      const res1 = await fetch('/api/v1/reservation?offset=0&limit=200', {
+        headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+      });
+      debugLog.push(`Page1: HTTP ${res1.status}`);
+      if (!res1.ok) {
+        const errText = await res1.text().catch(() => '');
+        debugLog.push(`Err: ${errText.substring(0, 200)}`);
+      }
+      const firstJson = res1.ok ? await res1.json() : [];
       let firstItems = Array.isArray(firstJson) ? firstJson : [];
       if (!firstItems.length && firstJson && typeof firstJson === 'object') {
         for (const k of Object.keys(firstJson)) {
           if (Array.isArray(firstJson[k])) { firstItems = firstJson[k]; break; }
         }
       }
+      debugLog.push(`Page1 items: ${firstItems.length}`);
       for (const item of firstItems) {
         if (!seenIds.has(item.id)) { seenIds.add(item.id); allRawItems.push(item); }
       }
@@ -470,6 +480,7 @@ async function fetchLodgifyData() {
           const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}`, {
             headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
           });
+          debugLog.push(`Page${offset/PAGE_SIZE+1}: HTTP ${resRes.status}`);
           if (!resRes.ok) break;
           const json = await resRes.json();
           let pageItems = Array.isArray(json) ? json : [];
@@ -478,6 +489,7 @@ async function fetchLodgifyData() {
               if (Array.isArray(json[k])) { pageItems = json[k]; break; }
             }
           }
+          debugLog.push(`Page${offset/PAGE_SIZE+1} items: ${pageItems.length}`);
           if (pageItems.length === 0) break;
 
           let newCount = 0;
@@ -489,8 +501,13 @@ async function fetchLodgifyData() {
         }
       }
 
+      // Show debug info on page
+      console.log('DEBUG FETCH:', debugLog.join(' | '));
+      document.title = `DEBUG: ${allRawItems.length} raw | ${debugLog.join(' | ')}`;
+
     } catch(fetchErr) {
       console.error('Fetch error:', fetchErr);
+      document.title = `ERREUR: ${fetchErr.message}`;
     }
 
     if (allRawItems.length > 0) {
