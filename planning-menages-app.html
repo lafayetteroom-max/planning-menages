@@ -468,9 +468,16 @@ async function fetchLodgifyData() {
         const firstRes = await fetch('/api/v1/reservation?offset=0&limit=50', { headers: { 'X-ApiKey': key, 'Accept': 'application/json' } });
         dbgLog('page1:' + firstRes.status);
         if (firstRes.ok) {
-          const firstItems = await firstRes.json();
-          dbgLog('page1 items:' + (Array.isArray(firstItems) ? firstItems.length : 'not array'));
-          if (Array.isArray(firstItems)) allRawItems = firstItems;
+          var firstJson = await firstRes.json();
+          var firstItems = Array.isArray(firstJson) ? firstJson : [];
+          if (!firstItems.length && firstJson && typeof firstJson === 'object') {
+            var keys = Object.keys(firstJson);
+            for (var ki = 0; ki < keys.length; ki++) {
+              if (Array.isArray(firstJson[keys[ki]])) { firstItems = firstJson[keys[ki]]; break; }
+            }
+          }
+          dbgLog('page1 items:' + firstItems.length);
+          allRawItems = firstItems;
           if (allRawItems.length >= 50) {
             var pagePromises = [];
             for (var off = 50; off < 1100; off += 50) {
@@ -481,7 +488,14 @@ async function fetchLodgifyData() {
             }
             var pages = await Promise.all(pagePromises);
             for (var pi = 0; pi < pages.length; pi++) {
-              if (Array.isArray(pages[pi]) && pages[pi].length > 0) allRawItems = allRawItems.concat(pages[pi]);
+              var pg = Array.isArray(pages[pi]) ? pages[pi] : [];
+              if (!pg.length && pages[pi] && typeof pages[pi] === 'object') {
+                var pkeys = Object.keys(pages[pi]);
+                for (var pki = 0; pki < pkeys.length; pki++) {
+                  if (Array.isArray(pages[pi][pkeys[pki]])) { pg = pages[pi][pkeys[pki]]; break; }
+                }
+              }
+              if (pg.length > 0) allRawItems = allRawItems.concat(pg);
               else break;
             }
             dbgLog('total:' + allRawItems.length);
