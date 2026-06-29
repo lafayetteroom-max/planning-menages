@@ -160,13 +160,6 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 </style>
 </head>
 <body>
-<div id="debugBanner" style="display:none;background:#fee;color:#c00;padding:8px;font-size:12px;position:fixed;bottom:0;left:0;right:0;z-index:9999;max-height:100px;overflow:auto;"></div>
-<script>
-window.onerror = function(msg, url, line) {
-  var d = document.getElementById('debugBanner');
-  if (d) { d.style.display = 'block'; d.textContent += 'ERR: ' + msg + ' (ligne ' + line + ') '; }
-};
-</script>
 
 <div class="header">
   <div>
@@ -437,8 +430,7 @@ async function fetchLodgifyData() {
     // Try bulk endpoint first (instant if server cache is warm)
     let allRawItems = [];
     let propsRaw = [];
-    var dbg = document.getElementById('debugBanner');
-    function dbgLog(msg) { if(dbg){dbg.style.display='block';dbg.textContent+=msg+' | ';} console.log(msg); }
+    function dbgLog(msg) { console.log(msg); }
 
     try {
       const bulkRes = await fetch('/api/bulk');
