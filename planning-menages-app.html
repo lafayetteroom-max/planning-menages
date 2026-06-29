@@ -455,57 +455,55 @@ async function fetchLodgifyData() {
     }
 
     // ===== FETCH RESERVATIONS via /v1/reservation =====
-    // Only load from 10 days before today onwards (no need for old history)
     status.textContent = 'Chargement des reservations...';
 
     // Charger les sejours arrives depuis J-5 max (pour capter les sejours en cours)
     const dateFrom = fmt(addDays(today, -5));
 
     let allRawItems = [];
-    let rawApiDump = '';
 
     try {
       const seenIds = new Set();
-      let paginationMethod = '';
 
-      // offset-based pagination with date filter
-      for (let offset = 0; offset < 2000; offset += 50) {
-        const resUrl = `/api/v1/reservation?offset=${offset}&limit=50&arrival_start=${dateFrom}`;
-        const resRes = await fetch(resUrl, {
-          headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
-        });
-        if (!resRes.ok) break;
-        const json = await resRes.json();
-        let pageItems = Array.isArray(json) ? json : [];
-        if (!pageItems.length && json && typeof json === 'object') {
-          for (const k of Object.keys(json)) {
-            if (Array.isArray(json[k])) { pageItems = json[k]; break; }
-          }
+      // Fetch pages in parallel (3 at a time) for speed
+      const PAGE_SIZE = 50;
+      const MAX_PAGES = 10; // 500 max reservations
+      const PARALLEL = 3;
+
+      for (let batch = 0; batch < MAX_PAGES; batch += PARALLEL) {
+        const fetches = [];
+        for (let p = 0; p < PARALLEL && (batch + p) < MAX_PAGES; p++) {
+          const offset = (batch + p) * PAGE_SIZE;
+          fetches.push(
+            fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
+              headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
+            }).then(r => r.ok ? r.json() : []).catch(() => [])
+          );
         }
-        if (pageItems.length === 0) break;
+        const results = await Promise.all(fetches);
 
-        let newCount = 0;
-        for (const item of pageItems) {
-          if (!seenIds.has(item.id)) {
-            seenIds.add(item.id);
-            allRawItems.push(item);
-            newCount++;
+        let batchEmpty = true;
+        for (const json of results) {
+          let pageItems = Array.isArray(json) ? json : [];
+          if (!pageItems.length && json && typeof json === 'object') {
+            for (const k of Object.keys(json)) {
+              if (Array.isArray(json[k])) { pageItems = json[k]; break; }
+            }
+          }
+          for (const item of pageItems) {
+            if (!seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              allRawItems.push(item);
+              batchEmpty = false;
+            }
           }
         }
         status.textContent = `${allRawItems.length} reservations...`;
-
-        if (offset === 0) {
-          paginationMethod = `offset+date (${pageItems.length}/page, depuis ${dateFrom})`;
-          rawApiDump = `First item ALL KEYS:\n${Object.keys(pageItems[0]).join(', ')}\n\nFirst item FULL:\n${JSON.stringify(pageItems[0], null, 2)}`;
-        }
-
-        if (newCount === 0) break;
+        if (batchEmpty) break; // No more data
       }
 
-      rawApiDump = `Total: ${allRawItems.length} reservations (methode: ${paginationMethod})\n\n` + rawApiDump;
-
     } catch(fetchErr) {
-      rawApiDump += `\nFETCH ERROR: ${fetchErr.message}`;
+      console.error('Fetch error:', fetchErr);
     }
 
     if (allRawItems.length > 0) {
@@ -608,6 +606,15 @@ async function fetchLodgifyData() {
     connEl.className = 'connection-status connected';
     connEl.textContent = `Lodgify (${PROPERTIES.length} logements, ${bookings.length} resa.)`;
 
+    // Cache bookings in localStorage for instant next load
+    try {
+      localStorage.setItem('cachedBookings', JSON.stringify(bookings.map(b => ({
+        ...b, _raw: undefined, checkin: fmt(b.checkin), checkout: fmt(b.checkout), date: undefined
+      }))));
+      localStorage.setItem('cachedProperties', JSON.stringify(PROPERTIES));
+      localStorage.setItem('cacheTime', Date.now().toString());
+    } catch(e) {}
+
     render();
 
     // Scan messages in background (non-blocking)
@@ -709,193 +716,92 @@ function analyzeMessages(messages, bookingId) {
 async function scanMessagesInBackground(apiKey) {
   const connEl = document.getElementById('connStatus');
   const originalText = connEl.textContent;
-  let scanned = 0;
-  const toScan = bookings.filter(b => b.checkout >= today); // Only scan upcoming
-  console.log('Starting message scan for', toScan.length, 'bookings');
+  const toScan = bookings.filter(b => b.checkout >= today);
+  console.log('Message scan: ', toScan.length, 'bookings');
 
-  // === 0. Fetch ALL conversation threads from inbox first ===
-  let allThreads = [];
-  try {
-    connEl.textContent = 'Chargement conversations...';
-    // Try multiple inbox/thread list endpoints
-    const inboxEndpoints = [
-      '/api/v1/reservation/threads',
-      '/api/v2/reservation/threads',
-      '/api/v1/inbox',
+  // === Step 1: Extract notes from raw booking data (instant, no API calls) ===
+  for (const b of toScan) {
+    const raw = b._raw;
+    if (!raw) continue;
+    const noteFields = [
+      raw.notes, raw.guest_notes, raw.special_requests,
+      raw.internal_notes, raw.comment, raw.guest_comment,
+      raw.host_comment, raw.description, raw.message,
+      raw.guest_message, raw.additional_info, raw.remarks
     ];
-    for (const ep of inboxEndpoints) {
+    if (raw.rooms && Array.isArray(raw.rooms)) {
+      raw.rooms.forEach(room => {
+        noteFields.push(room.notes, room.guest_notes, room.special_requests, room.comment);
+      });
+    }
+    const noteTexts = noteFields.filter(Boolean).map(n => stripHtml(String(n)));
+    if (noteTexts.length > 0) {
+      const msgs = [{ body: noteTexts.join(' ') }];
+      messageCache[b.id] = msgs;
+      b.messages = msgs;
+      analyzeMessages(msgs, b.id);
+    }
+  }
+  // First render with notes-based alerts
+  render();
+
+  // === Step 2: Try to fetch thread messages in parallel batches ===
+  connEl.textContent = 'Scan messages...';
+  const BATCH_SIZE = 5; // 5 concurrent API calls
+
+  async function tryFetchMessages(b) {
+    const raw = b._raw;
+    const threadUid = raw?.thread_uid;
+    let airbnbThreadId = null;
+    try {
+      const srcData = JSON.parse(raw?.source_text || '{}');
+      airbnbThreadId = srcData.threadId;
+    } catch(e) {}
+
+    const threadIds = [threadUid, airbnbThreadId].filter(Boolean);
+    const endpoints = [];
+    for (const tid of [...new Set(threadIds)]) {
+      endpoints.push(`/api/v1/reservation/threads/${tid}/messages`);
+      endpoints.push(`/api/v1/reservation/threads/${tid}`);
+    }
+    endpoints.push(`/api/v1/reservation/booking/${b.id}/messages`);
+
+    for (const endpoint of endpoints) {
       try {
-        const res = await fetch(ep, { headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' } });
+        const res = await fetch(endpoint, {
+          headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
+        });
         if (res.ok) {
           const data = await res.json();
-          const items = Array.isArray(data) ? data : (data?.items || data?.threads || data?.results || []);
-          if (items.length > 0) {
-            allThreads = items;
-            console.log(`✅ Inbox from ${ep}:`, items.length, 'threads', JSON.stringify(items[0]).substring(0, 500));
-            break;
+          let msgs = [];
+          if (Array.isArray(data)) msgs = data;
+          else if (data?.items) msgs = data.items;
+          else if (data?.messages) msgs = data.messages;
+          else if (data && typeof data === 'object') msgs = [data];
+          if (msgs.length > 0) {
+            const existing = messageCache[b.id] || [];
+            const combined = [...existing, ...msgs];
+            messageCache[b.id] = combined;
+            b.messages = combined;
+            analyzeMessages(combined, b.id);
+            console.log(`✅ ${b.guestName}: ${msgs.length} msgs from ${endpoint}`);
+            return;
           }
         }
-        console.log(`Inbox ${ep}: HTTP ${res.status}`);
-      } catch(e) { console.log(`Inbox ${ep}: error`, e.message); }
+      } catch(e) { /* silent */ }
     }
-  } catch(e) { console.warn('Inbox fetch error:', e); }
+  }
 
-  // Build thread lookup by booking ID or guest name
-  const threadByBookingId = {};
-  allThreads.forEach(t => {
-    if (t.booking_id) threadByBookingId[t.booking_id] = t;
-    if (t.reservation_id) threadByBookingId[t.reservation_id] = t;
-  });
-
-  for (const b of toScan) {
-    try {
-      connEl.textContent = `Scan messages... (${++scanned}/${toScan.length})`;
-      let allMessages = [];
-
-      // === 1. Booking-level notes/comments from the raw API data ===
-      const rawBooking = b._raw;
-      if (rawBooking) {
-        // Explore ALL string fields recursively for hidden notes
-        const noteFields = [
-          rawBooking.notes, rawBooking.guest_notes, rawBooking.special_requests,
-          rawBooking.internal_notes, rawBooking.comment, rawBooking.guest_comment,
-          rawBooking.host_comment, rawBooking.description, rawBooking.message,
-          rawBooking.guest_message, rawBooking.additional_info, rawBooking.remarks,
-          rawBooking.source_text, rawBooking.booking_text
-        ];
-        // Also check rooms-level notes
-        if (rawBooking.rooms && Array.isArray(rawBooking.rooms)) {
-          rawBooking.rooms.forEach(room => {
-            noteFields.push(room.notes, room.guest_notes, room.special_requests, room.comment);
-          });
-        }
-        // Also check policies/extras
-        if (rawBooking.policies) noteFields.push(rawBooking.policies);
-        const noteTexts = noteFields.filter(Boolean).map(n => stripHtml(String(n)));
-        if (noteTexts.length > 0) {
-          allMessages.push({ body: noteTexts.join(' ') });
-          if (scanned <= 5) console.log(`Notes for ${b.id} (${b.guestName}):`, noteTexts.join(' ').substring(0, 300));
-        }
-        // Dump all raw keys for debugging (first 5 bookings)
-        if (scanned <= 5) {
-          console.log(`RAW keys for ${b.id} (${b.guestName}):`, Object.keys(rawBooking));
-          // Look for any string field that might contain messages
-          Object.entries(rawBooking).forEach(([k, v]) => {
-            if (typeof v === 'string' && v.length > 10) {
-              console.log(`  ${k}: "${v.substring(0, 150)}"`);
-            }
-          });
-        }
-      }
-
-      // === 2. Fetch conversation via thread_uid (Lodgify's messaging system) ===
-      const threadUid = rawBooking?.thread_uid;
-      if (scanned <= 5) console.log(`thread_uid for ${b.id} (${b.guestName}): "${threadUid}"`);
-
-      // Also get Airbnb threadId from source_text if present
-      let airbnbThreadId = null;
-      try {
-        const srcData = JSON.parse(rawBooking?.source_text || '{}');
-        airbnbThreadId = srcData.threadId || srcData.migrationThreadId;
-      } catch(e) {}
-
-      // Collect all thread IDs to try
-      const threadIds = [threadUid, airbnbThreadId].filter(Boolean);
-      // Also check if inbox has a match for this booking
-      const inboxThread = threadByBookingId[b.id];
-      if (inboxThread) {
-        const inboxMessages = inboxThread.messages || [];
-        if (inboxMessages.length > 0) {
-          allMessages.push(...inboxMessages);
-          console.log(`✅ Inbox match for ${b.id} (${b.guestName}):`, inboxMessages.length, 'msgs');
-        }
-        // Also try thread ID from inbox
-        if (inboxThread.id) threadIds.push(inboxThread.id);
-        if (inboxThread.uid) threadIds.push(inboxThread.uid);
-        if (inboxThread.thread_uid) threadIds.push(inboxThread.thread_uid);
-      }
-
-      for (const tid of [...new Set(threadIds)]) {
-        const threadEndpoints = [
-          `/api/v1/reservation/threads/${tid}/messages`,
-          `/api/v1/reservation/threads/${tid}`,
-          `/api/v2/reservation/threads/${tid}/messages`,
-          `/api/v2/reservation/threads/${tid}`,
-        ];
-        let found = false;
-        for (const endpoint of threadEndpoints) {
-          try {
-            const res = await fetch(endpoint, {
-              headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-            });
-            if (res.ok) {
-              const data = await res.json();
-              let msgs = [];
-              if (Array.isArray(data)) msgs = data;
-              else if (data?.items) msgs = data.items;
-              else if (data?.messages) msgs = data.messages;
-              else if (data?.threads) {
-                data.threads.forEach(t => {
-                  if (t.messages) msgs.push(...t.messages);
-                  else msgs.push(t);
-                });
-              }
-              else if (data && typeof data === 'object' && !Array.isArray(data)) {
-                msgs = [data];
-              }
-              if (msgs.length > 0) {
-                allMessages.push(...msgs);
-                console.log(`✅ Thread ${endpoint} for ${b.id} (${b.guestName}):`, msgs.length, 'msgs', JSON.stringify(msgs[0]).substring(0, 400));
-                found = true;
-                break;
-              }
-            }
-            if (scanned <= 5) console.log(`${endpoint}: HTTP ${res.status}`);
-          } catch(e) { /* silent */ }
-        }
-        if (found) break;
-      }
-
-      // === 3. Also try booking-based message endpoints ===
-      if (allMessages.length <= 1) { // only raw notes so far
-        const bookingEndpoints = [
-          `/api/v1/reservation/booking/${b.id}/messages`,
-          `/api/v1/reservation/${b.id}/messages`,
-          `/api/v2/reservations/${b.id}/messages`,
-        ];
-        for (const endpoint of bookingEndpoints) {
-          try {
-            const res = await fetch(endpoint, {
-              headers: { 'X-ApiKey': apiKey, 'Accept': 'application/json' }
-            });
-            if (res.ok) {
-              const data = await res.json();
-              let msgs = Array.isArray(data) ? data : (data?.items || data?.messages || []);
-              if (msgs.length > 0) {
-                allMessages.push(...msgs);
-                console.log(`✅ Booking msgs ${endpoint} for ${b.id}:`, msgs.length);
-                break;
-              }
-            }
-          } catch(e) { /* silent */ }
-        }
-      }
-
-      if (allMessages.length > 0) {
-        messageCache[b.id] = allMessages;
-        b.messages = allMessages;
-        analyzeMessages(allMessages, b.id);
-      }
-    } catch(e) {
-      console.warn(`Messages scan error for ${b.id}:`, e.message);
-    }
-    await new Promise(r => setTimeout(r, 100));
+  // Process in parallel batches
+  for (let i = 0; i < toScan.length; i += BATCH_SIZE) {
+    const batch = toScan.slice(i, i + BATCH_SIZE);
+    connEl.textContent = `Scan messages... (${Math.min(i + BATCH_SIZE, toScan.length)}/${toScan.length})`;
+    await Promise.all(batch.map(b => tryFetchMessages(b)));
   }
 
   connEl.textContent = originalText;
-  render(); // Re-render with message alerts
-  console.log('Message scan complete:', Object.keys(messageAlerts).length, 'alerts found out of', toScan.length, 'bookings scanned');
-  console.log('All message alerts:', JSON.stringify(messageAlerts));
+  render();
+  console.log('Message scan complete:', Object.keys(messageAlerts).length, 'alerts found');
 }
 
 // ===== GUEST EDITING =====
@@ -1470,6 +1376,25 @@ function showDebug(apiDump) {
 // ===== INIT =====
 bookings = [];
 function render() { renderStats(); renderLegend(); renderCalendar(); renderList(); }
+
+// Load cached data for instant display while API loads
+try {
+  const cacheAge = Date.now() - parseInt(localStorage.getItem('cacheTime') || '0');
+  if (cacheAge < 24 * 60 * 60 * 1000) { // Cache valid for 24h
+    const cachedProps = JSON.parse(localStorage.getItem('cachedProperties') || '[]');
+    const cachedBookings = JSON.parse(localStorage.getItem('cachedBookings') || '[]');
+    if (cachedProps.length > 0 && cachedBookings.length > 0) {
+      PROPERTIES = cachedProps;
+      bookings = cachedBookings.map(b => ({
+        ...b,
+        checkin: b.checkin ? new Date(b.checkin) : null,
+        checkout: b.checkout ? new Date(b.checkout) : null,
+      }));
+      console.log('Cache loaded:', PROPERTIES.length, 'props,', bookings.length, 'bookings');
+    }
+  }
+} catch(e) {}
+
 render();
 
 // Auto-connect au chargement
