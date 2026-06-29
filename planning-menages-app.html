@@ -458,7 +458,9 @@ async function fetchLodgifyData() {
       function isRelevant(r) {
         const co = r.departure ?? r.date_departure ?? r.check_out
           ?? r.rooms?.[0]?.date_departure ?? r.rooms?.[0]?.departure ?? null;
-        if (!co || co < cutoffDate) return false;
+        if (!co) return false;
+        // Compare as dates (handles ISO strings with time)
+        if (new Date(co) < addDays(today, -5)) return false;
         if (/cancel|decline|annul/i.test(r.status || '')) return false;
         return true;
       }
@@ -477,10 +479,10 @@ async function fetchLodgifyData() {
       }
       connEl.textContent = `${relevantCount} reservations...`;
 
-      // Fetch remaining pages (max 3 extra pages = 200 total items)
+      // Fetch remaining pages — stop after 2 consecutive pages with no relevant items
       if (firstItems.length >= PAGE_SIZE) {
         let emptyPages = 0;
-        for (let offset = PAGE_SIZE; offset < PAGE_SIZE * 4; offset += PAGE_SIZE) {
+        for (let offset = PAGE_SIZE; offset < 5000; offset += PAGE_SIZE) {
           const resRes = await fetch(`/api/v1/reservation?offset=${offset}&limit=${PAGE_SIZE}&arrival_start=${dateFrom}`, {
             headers: { 'X-ApiKey': key, 'Accept': 'application/json' }
           });
@@ -587,7 +589,7 @@ async function fetchLodgifyData() {
             });
             console.log('Auto-added property:', b.propertyId, b.propertyName);
           }
-          if (b.checkout < addDays(today, -5) || b.checkin > addDays(today, 30)) return false;
+          if (b.checkout < addDays(today, -5)) return false;
           if (/cancel|decline|annul/i.test(b.status)) return false;
           return true;
         });
