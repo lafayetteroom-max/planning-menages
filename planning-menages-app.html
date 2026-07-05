@@ -1373,9 +1373,9 @@ function openNotePopup(dateStr) {
     </div>
     <textarea id="noteText" placeholder="Note (optionnel)...">${existing}</textarea>
     <div class="note-popup-btns">
-      ${hasData ? '<button class="btn-delete" onclick="deleteCalendarNote(\''+dateStr+'\')">Supprimer tout</button>' : ''}
+      ${hasData ? `<button class="btn-delete" onclick="deleteCalendarNote('${dateStr}')">Supprimer tout</button>` : ''}
       <button class="btn-cancel" onclick="closeNotePopup()">Annuler</button>
-      <button class="btn-save" onclick="saveCalendarNote(\''+dateStr+'\')">Enregistrer</button>
+      <button class="btn-save" onclick="saveCalendarNote('${dateStr}')">Enregistrer</button>
     </div>`;
   // Wrap in a dedicated overlay so clicks always work
   var overlay = document.createElement('div');
