@@ -8,11 +8,15 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone, timedelta
 import requests as ext_requests
 
 from flask import Flask, request, jsonify, send_file, Response
 
 app = Flask(__name__)
+
+# Horodatage de deploiement (capture au demarrage du serveur = moment du deploy)
+_DEPLOY_TIME = datetime.now(timezone(timedelta(hours=2))).strftime("%d/%m/%Y a %Hh%M")
 
 PORT = int(os.environ.get("PORT", 3000))
 LODGIFY_BASE = "https://api.lodgify.com"
@@ -79,6 +83,11 @@ def update_state():
 def get_version():
     state = load_state()
     return jsonify({"version": state.get("version", 0)})
+
+
+@app.route("/deploy-info")
+def deploy_info():
+    return jsonify({"deployed_at": _DEPLOY_TIME})
 
 
 @app.route("/api/<path:lodgify_path>", methods=["GET", "POST", "OPTIONS"])
