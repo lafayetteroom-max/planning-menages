@@ -620,6 +620,14 @@ async function fetchLodgifyData() {
     connEl.className = 'connection-status connected';
     connEl.textContent = `Lodgify (${PROPERTIES.length} logements, ${bookings.length} resa.)`;
 
+    // Afficher l'heure de derniere mise a jour
+    var now = new Date();
+    var hh = String(now.getHours()).padStart(2,'0');
+    var mm = String(now.getMinutes()).padStart(2,'0');
+    var dd = String(now.getDate()).padStart(2,'0');
+    var mo = String(now.getMonth()+1).padStart(2,'0');
+    document.getElementById('deployTimestamp').textContent = 'Mis a jour le ' + dd + '/' + mo + '/' + now.getFullYear() + ' a ' + hh + 'h' + mm;
+
     // Cache bookings in localStorage for instant next load
     try {
       localStorage.setItem('cachedBookings', JSON.stringify(bookings.map(b => ({
@@ -1461,11 +1469,6 @@ fetchLodgifyData();
 // Auto-refresh toutes les 10 minutes
 setInterval(() => { fetchLodgifyData(); }, 10 * 60 * 1000);
 
-// Afficher l'horodatage de deploiement
-fetch('/deploy-info').then(r => r.json()).then(d => {
-  var el = document.getElementById('deployTimestamp');
-  if (el && d.deployed_at) el.textContent = 'Deploye le ' + d.deployed_at;
-}).catch(function(){});
 </script>
 </body>
 </html>
