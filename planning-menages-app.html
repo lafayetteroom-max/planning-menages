@@ -53,7 +53,9 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .cal-event.checkout { opacity: 0.65; font-style: italic; }
 .cal-event.cleaning.done { background: #27ae60 !important; text-decoration: line-through; opacity: 0.85; }
 .cal-note { font-size: 10px; padding: 2px 4px; background: #fff3cd; color: #856404; border-radius: 3px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 2px solid #f0ad4e; }
-.cal-early { font-size: 9px; padding: 1px 3px; background: #fde8e8; color: #c0392b; border-radius: 3px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 2px solid #e74c3c; }
+.cal-early { font-size: 10px; font-weight: 700; padding: 3px 5px; background: #ff4444; color: #fff; border-radius: 4px; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; text-align: center; letter-spacing: 0.3px; animation: earlyPulse 2s ease-in-out infinite; }
+@keyframes earlyPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+.cal-day.has-early { border: 2px solid #ff4444 !important; background: #fff5f5; }
 .note-popup .early-section { margin-bottom: 12px; }
 .note-popup .early-section h4 { font-size: 13px; color: #666; margin-bottom: 6px; }
 .note-popup .early-toggle { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s; }
@@ -981,6 +983,7 @@ function renderCalendar() {
       const isToday = dateStr === fmt(today);
       let cls = "cal-day cal-day-week";
       if (isToday) cls += " today";
+      if (earlyArrivals[dateStr] && Object.values(earlyArrivals[dateStr]).some(v => v)) cls += " has-early";
 
       const dayOcc = occupancy[dateStr] || [];
       const dayTasks = tasksByDate[dateStr] || [];
@@ -1036,9 +1039,9 @@ function renderCalendar() {
       let weekEarlyHtml = '';
       if (earlyArrivals[dateStr]) {
         const dayEarly = earlyArrivals[dateStr];
-        const earlyNames = PROPERTIES.filter(p => dayEarly[p.id]).map(p => p.name);
-        if (earlyNames.length) {
-          weekEarlyHtml = `<div class="cal-early" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="Arrivee tot: ${earlyNames.join(', ')}">⚡ ${earlyNames.join(', ')}</div>`;
+        const earlyProps = PROPERTIES.filter(p => dayEarly[p.id]);
+        if (earlyProps.length) {
+          weekEarlyHtml = `<div class="cal-early" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="Arrivee tot: ${earlyProps.map(p=>p.name).join(', ')}">⚡ Arrivee tot — ${earlyProps.map(p=>p.name).join(', ')}</div>`;
         }
       }
       const weekNote = calendarNotes[dateStr] ? `<div class="cal-note" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="${calendarNotes[dateStr]}">${calendarNotes[dateStr]}</div>` : '';
@@ -1065,6 +1068,7 @@ function renderCalendar() {
       let cls = "cal-day";
       if (!isCur) cls += " other-month";
       if (isToday) cls += " today";
+      if (isCur && earlyArrivals[dateStr] && Object.values(earlyArrivals[dateStr]).some(v => v)) cls += " has-early";
 
     // Each property gets a fixed-height lane: bar + optional cleaning
     // Lane height is constant so bars stay aligned across days
@@ -1130,9 +1134,10 @@ function renderCalendar() {
     let earlyHtml = '';
     if (isCur && earlyArrivals[dateStr]) {
       const dayEarly = earlyArrivals[dateStr];
-      const earlyNames = PROPERTIES.filter(p => dayEarly[p.id]).map(p => p.name);
-      if (earlyNames.length) {
-        earlyHtml = `<div class="cal-early" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="Arrivee tot: ${earlyNames.join(', ')}">⚡ ${earlyNames.join(', ')}</div>`;
+      const earlyProps = PROPERTIES.filter(p => dayEarly[p.id]);
+      if (earlyProps.length) {
+        const dots = earlyProps.map(p => `<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${p.color};vertical-align:middle;margin-right:2px;"></span>`).join('');
+        earlyHtml = `<div class="cal-early" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="Arrivee tot: ${earlyProps.map(p=>p.name).join(', ')}">⚡ ${dots}</div>`;
       }
     }
     // Day note
@@ -1296,14 +1301,13 @@ function openDetail(taskId, keepOpen) {
 
 function openDayDetail(dateStr) {
   const tasks = getCleaningTasks().filter(t => fmt(t.date) === dateStr);
-  if (tasks.length === 1) { openDetail(tasks[0].id); return; }
   if (tasks.length === 0) { openNotePopup(dateStr); return; }
   const panel = document.getElementById('detailPanel');
   panel.innerHTML = `
     <button class="detail-close" onclick="closeDetail()">✕</button>
     <div class="detail-title">Menages du ${new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', {day:'numeric', month:'long'})}</div>
     <div style="margin-bottom:12px;">
-      <button class="btn btn-outline" onclick="closeDetail();openNotePopup('${dateStr}')" style="font-size:12px;padding:5px 12px;">⚡ Arrivee tot / Note</button>
+      <button class="btn btn-outline" onclick="closeDetail();setTimeout(function(){openNotePopup('${dateStr}')},100)" style="font-size:12px;padding:5px 12px;">⚡ Arrivee tot / Note</button>
     </div>
     ${tasks.map(t => {
       const pi = PROPERTIES.findIndex(p => p.id === t.propertyId);
