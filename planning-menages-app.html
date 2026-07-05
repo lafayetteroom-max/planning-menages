@@ -53,6 +53,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .cal-event.checkout { opacity: 0.65; font-style: italic; }
 .cal-event.cleaning.done { background: #27ae60 !important; text-decoration: line-through; opacity: 0.85; }
 .cal-note { font-size: 10px; padding: 2px 4px; background: #fff3cd; color: #856404; border-radius: 3px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 2px solid #f0ad4e; }
+.cal-early { font-size: 9px; padding: 1px 3px; background: #fde8e8; color: #c0392b; border-radius: 3px; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; border-left: 2px solid #e74c3c; }
+.note-popup .early-section { margin-bottom: 12px; }
+.note-popup .early-section h4 { font-size: 13px; color: #666; margin-bottom: 6px; }
+.note-popup .early-toggle { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; cursor: pointer; transition: background 0.15s; }
+.note-popup .early-toggle:hover { background: #f8f9fa; }
+.note-popup .early-toggle input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
+.note-popup .early-toggle .prop-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.note-popup .early-toggle label { font-size: 13px; cursor: pointer; flex: 1; }
 .note-popup { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); z-index: 1100; min-width: 300px; max-width: 90vw; }
 .note-popup h3 { margin: 0 0 12px 0; font-size: 16px; color: #333; }
 .note-popup textarea { width: 100%; height: 80px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; font-size: 14px; font-family: inherit; resize: vertical; box-sizing: border-box; }
@@ -234,6 +242,7 @@ let checklistState = {}; // { taskId: { 0: true, 3: true, ... } }
 let customTimes = {}; // { taskId: { checkout: "11:00", checkin: "17:00" } }
 let customGuests = {}; // { bookingId: { adults, children, babies } }
 let calendarNotes = {}; // { "2026-06-29": "plombier 14h" }
+let earlyArrivals = {}; // { "2026-06-29": { "667331": true, "494975": false } }
 let messageCache = {}; // { reservationId: [...messages] }
 let messageAlerts = {}; // { bookingId: { baby: true/false, extraBed: true/false, ... } }
 let stateVersion = 0; // server state version for sync
@@ -243,7 +252,7 @@ let syncPaused = false; // pause sync during local edits
 async function syncPushState() {
   try {
     const payload = {
-      cleaningStatus, cleaningNotes, checklistState, customTimes, customGuests, calendarNotes
+      cleaningStatus, cleaningNotes, checklistState, customTimes, customGuests, calendarNotes, earlyArrivals
     };
     const res = await fetch('/state', {
       method: 'POST',
@@ -273,6 +282,7 @@ async function syncPullState() {
     cleaningStatus = data.cleaningStatus || {};
     cleaningNotes = data.cleaningNotes || {};
     calendarNotes = data.calendarNotes || {};
+    earlyArrivals = data.earlyArrivals || {};
     checklistState = data.checklistState || {};
     customTimes = data.customTimes || {};
     customGuests = data.customGuests || {};
@@ -607,6 +617,7 @@ async function fetchLodgifyData() {
         cleaningStatus = savedState.cleaningStatus || {};
         cleaningNotes = savedState.cleaningNotes || {};
         calendarNotes = savedState.calendarNotes || {};
+        earlyArrivals = savedState.earlyArrivals || {};
         checklistState = savedState.checklistState || {};
         customTimes = savedState.customTimes || {};
         customGuests = savedState.customGuests || {};
@@ -1020,9 +1031,18 @@ function renderCalendar() {
         content += `<div class="cal-lane">${lane}</div>`;
       });
 
+      // Early arrival indicators (week view)
+      let weekEarlyHtml = '';
+      if (earlyArrivals[dateStr]) {
+        const dayEarly = earlyArrivals[dateStr];
+        const earlyNames = PROPERTIES.filter(p => dayEarly[p.id]).map(p => p.name);
+        if (earlyNames.length) {
+          weekEarlyHtml = `<div class="cal-early" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="Arrivee tot: ${earlyNames.join(', ')}">⚡ ${earlyNames.join(', ')}</div>`;
+        }
+      }
       const weekNote = calendarNotes[dateStr] ? `<div class="cal-note" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="${calendarNotes[dateStr]}">${calendarNotes[dateStr]}</div>` : '';
       html += `<div class="${cls}" onclick="openDayDetail('${dateStr}')">
-        <div class="cal-bars">${content}</div>${weekNote}</div>`;
+        <div class="cal-bars">${content}</div>${weekEarlyHtml}${weekNote}</div>`;
     });
     document.getElementById('calendar').innerHTML = html;
   } else {
@@ -1105,11 +1125,20 @@ function renderCalendar() {
       // (equipment warnings now shown directly on cleaning tasks above)
     }
 
+    // Early arrival indicators
+    let earlyHtml = '';
+    if (isCur && earlyArrivals[dateStr]) {
+      const dayEarly = earlyArrivals[dateStr];
+      const earlyNames = PROPERTIES.filter(p => dayEarly[p.id]).map(p => p.name);
+      if (earlyNames.length) {
+        earlyHtml = `<div class="cal-early" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="Arrivee tot: ${earlyNames.join(', ')}">⚡ ${earlyNames.join(', ')}</div>`;
+      }
+    }
     // Day note
     const dayNote = isCur && calendarNotes[dateStr] ? `<div class="cal-note" onclick="event.stopPropagation();openNotePopup('${dateStr}')" title="${calendarNotes[dateStr]}">${calendarNotes[dateStr]}</div>` : '';
 
     html += `<div class="${cls}" onclick="openDayDetail('${dateStr}')">
-      <div class="cal-day-num">${isCur ? dayNum : ''}</div><div class="cal-bars">${content}</div>${dayNote}</div>`;
+      <div class="cal-day-num">${isCur ? dayNum : ''}</div><div class="cal-bars">${content}</div>${earlyHtml}${dayNote}</div>`;
   }
     document.getElementById('calendar').innerHTML = html;
   } // end month view
@@ -1312,6 +1341,7 @@ function saveNote(id, t) { cleaningNotes[id] = t; scheduleSyncPush(); }
 
 function openNotePopup(dateStr) {
   const existing = calendarNotes[dateStr] || '';
+  const dayEarly = earlyArrivals[dateStr] || {};
   const dateLabel = new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   // Remove existing popup if any
   const old = document.getElementById('notePopup');
@@ -1319,17 +1349,31 @@ function openNotePopup(dateStr) {
   const popup = document.createElement('div');
   popup.id = 'notePopup';
   popup.className = 'note-popup';
+
+  // Build early arrival checkboxes for each property
+  const earlyHtml = PROPERTIES.map(p => {
+    const checked = dayEarly[p.id] ? 'checked' : '';
+    return `<div class="early-toggle">
+      <input type="checkbox" id="early_${p.id}" ${checked} />
+      <span class="prop-dot" style="background:${p.color}"></span>
+      <label for="early_${p.id}">${p.name}</label>
+    </div>`;
+  }).join('');
+
+  const hasData = existing || Object.values(dayEarly).some(v => v);
   popup.innerHTML = `
     <h3>${dateLabel}</h3>
-    <textarea id="noteText" placeholder="Ajouter une note...">${existing}</textarea>
+    <div class="early-section">
+      <h4>Arrivee tot</h4>
+      ${earlyHtml}
+    </div>
+    <textarea id="noteText" placeholder="Note (optionnel)...">${existing}</textarea>
     <div class="note-popup-btns">
-      ${existing ? '<button class="btn-delete" onclick="deleteCalendarNote(\''+dateStr+'\')">Supprimer</button>' : ''}
+      ${hasData ? '<button class="btn-delete" onclick="deleteCalendarNote(\''+dateStr+'\')">Supprimer tout</button>' : ''}
       <button class="btn-cancel" onclick="closeNotePopup()">Annuler</button>
       <button class="btn-save" onclick="saveCalendarNote(\''+dateStr+'\')">Enregistrer</button>
     </div>`;
   document.body.appendChild(popup);
-  // Focus textarea
-  setTimeout(() => document.getElementById('noteText').focus(), 100);
 }
 function closeNotePopup() {
   const p = document.getElementById('notePopup');
@@ -1339,12 +1383,22 @@ function saveCalendarNote(dateStr) {
   const text = document.getElementById('noteText').value.trim();
   if (text) { calendarNotes[dateStr] = text; }
   else { delete calendarNotes[dateStr]; }
+  // Save early arrivals
+  var dayEarly = {};
+  var hasEarly = false;
+  PROPERTIES.forEach(function(p) {
+    var cb = document.getElementById('early_' + p.id);
+    if (cb && cb.checked) { dayEarly[p.id] = true; hasEarly = true; }
+  });
+  if (hasEarly) { earlyArrivals[dateStr] = dayEarly; }
+  else { delete earlyArrivals[dateStr]; }
   closeNotePopup();
   render();
   scheduleSyncPush();
 }
 function deleteCalendarNote(dateStr) {
   delete calendarNotes[dateStr];
+  delete earlyArrivals[dateStr];
   closeNotePopup();
   render();
   scheduleSyncPush();
