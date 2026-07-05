@@ -61,7 +61,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .note-popup .early-toggle input[type=checkbox] { width: 16px; height: 16px; cursor: pointer; }
 .note-popup .early-toggle .prop-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
 .note-popup .early-toggle label { font-size: 13px; cursor: pointer; flex: 1; }
-.note-popup { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); z-index: 1100; min-width: 300px; max-width: 90vw; }
+.note-popup-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.35); z-index: 1200; display: flex; align-items: center; justify-content: center; }
+.note-popup { position: relative; background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 8px 30px rgba(0,0,0,0.25); min-width: 300px; max-width: 90vw; }
 .note-popup h3 { margin: 0 0 12px 0; font-size: 16px; color: #333; }
 .note-popup textarea { width: 100%; height: 80px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; font-size: 14px; font-family: inherit; resize: vertical; box-sizing: border-box; }
 .note-popup textarea:focus { outline: none; border-color: #2e75b6; }
@@ -1301,6 +1302,9 @@ function openDayDetail(dateStr) {
   panel.innerHTML = `
     <button class="detail-close" onclick="closeDetail()">✕</button>
     <div class="detail-title">Menages du ${new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', {day:'numeric', month:'long'})}</div>
+    <div style="margin-bottom:12px;">
+      <button class="btn btn-outline" onclick="closeDetail();openNotePopup('${dateStr}')" style="font-size:12px;padding:5px 12px;">⚡ Arrivee tot / Note</button>
+    </div>
     ${tasks.map(t => {
       const pi = PROPERTIES.findIndex(p => p.id === t.propertyId);
       const prop = PROPERTIES[pi] || PROPERTIES[0];
@@ -1344,7 +1348,7 @@ function openNotePopup(dateStr) {
   const dayEarly = earlyArrivals[dateStr] || {};
   const dateLabel = new Date(dateStr + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   // Remove existing popup if any
-  const old = document.getElementById('notePopup');
+  const old = document.getElementById('notePopupOverlay');
   if (old) old.remove();
   const popup = document.createElement('div');
   popup.id = 'notePopup';
@@ -1373,10 +1377,16 @@ function openNotePopup(dateStr) {
       <button class="btn-cancel" onclick="closeNotePopup()">Annuler</button>
       <button class="btn-save" onclick="saveCalendarNote(\''+dateStr+'\')">Enregistrer</button>
     </div>`;
-  document.body.appendChild(popup);
+  // Wrap in a dedicated overlay so clicks always work
+  var overlay = document.createElement('div');
+  overlay.id = 'notePopupOverlay';
+  overlay.className = 'note-popup-overlay';
+  overlay.onclick = function(e) { if (e.target === overlay) closeNotePopup(); };
+  overlay.appendChild(popup);
+  document.body.appendChild(overlay);
 }
 function closeNotePopup() {
-  const p = document.getElementById('notePopup');
+  const p = document.getElementById('notePopupOverlay');
   if (p) p.remove();
 }
 function saveCalendarNote(dateStr) {
