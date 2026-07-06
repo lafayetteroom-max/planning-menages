@@ -284,12 +284,22 @@ async function syncPullState() {
     const data = await res.json();
     cleaningStatus = data.cleaningStatus || {};
     cleaningNotes = data.cleaningNotes || {};
-    calendarNotes = data.calendarNotes || {};
-    earlyArrivals = data.earlyArrivals || {};
+    // Fusionner avec les donnees locales
+    var pullNotes = data.calendarNotes || {};
+    var pullEarly = data.earlyArrivals || {};
+    Object.keys(calendarNotes).forEach(function(k) { if (!pullNotes[k]) pullNotes[k] = calendarNotes[k]; });
+    Object.keys(earlyArrivals).forEach(function(k) { if (!pullEarly[k]) pullEarly[k] = earlyArrivals[k]; });
+    calendarNotes = pullNotes;
+    earlyArrivals = pullEarly;
     checklistState = data.checklistState || {};
     customTimes = data.customTimes || {};
     customGuests = data.customGuests || {};
     stateVersion = data.version || 0;
+    // Mettre a jour le cache localStorage
+    try {
+      localStorage.setItem('cachedCalendarNotes', JSON.stringify(calendarNotes));
+      localStorage.setItem('cachedEarlyArrivals', JSON.stringify(earlyArrivals));
+    } catch(e2) {}
     render();
     console.log('State synced from server (v' + stateVersion + ')');
   } catch(e) { console.warn('Sync pull failed:', e.message); }
@@ -619,8 +629,13 @@ async function fetchLodgifyData() {
       if (savedState) {
         cleaningStatus = savedState.cleaningStatus || {};
         cleaningNotes = savedState.cleaningNotes || {};
-        calendarNotes = savedState.calendarNotes || {};
-        earlyArrivals = savedState.earlyArrivals || {};
+        // Fusionner avec les donnees locales (localStorage) pour ne pas perdre les notes/arrivees
+        var serverNotes = savedState.calendarNotes || {};
+        var serverEarly = savedState.earlyArrivals || {};
+        Object.keys(calendarNotes).forEach(function(k) { if (!serverNotes[k]) serverNotes[k] = calendarNotes[k]; });
+        Object.keys(earlyArrivals).forEach(function(k) { if (!serverEarly[k]) serverEarly[k] = earlyArrivals[k]; });
+        calendarNotes = serverNotes;
+        earlyArrivals = serverEarly;
         checklistState = savedState.checklistState || {};
         customTimes = savedState.customTimes || {};
         customGuests = savedState.customGuests || {};
@@ -1407,15 +1422,24 @@ function saveCalendarNote(dateStr) {
   if (hasEarly) { earlyArrivals[dateStr] = dayEarly; }
   else { delete earlyArrivals[dateStr]; }
   closeNotePopup();
+  // Sauvegarder dans localStorage immediatement
+  try {
+    localStorage.setItem('cachedCalendarNotes', JSON.stringify(calendarNotes));
+    localStorage.setItem('cachedEarlyArrivals', JSON.stringify(earlyArrivals));
+  } catch(e) {}
   render();
-  scheduleSyncPush();
+  syncPushState(); // envoi immediat, pas de debounce
 }
 function deleteCalendarNote(dateStr) {
   delete calendarNotes[dateStr];
   delete earlyArrivals[dateStr];
   closeNotePopup();
+  try {
+    localStorage.setItem('cachedCalendarNotes', JSON.stringify(calendarNotes));
+    localStorage.setItem('cachedEarlyArrivals', JSON.stringify(earlyArrivals));
+  } catch(e) {}
   render();
-  scheduleSyncPush();
+  syncPushState();
 }
 function saveTime(id, type, val) {
   if (!customTimes[id]) customTimes[id] = {};
@@ -1527,6 +1551,14 @@ try {
       console.log('Cache loaded:', PROPERTIES.length, 'props,', bookings.length, 'bookings');
     }
   }
+} catch(e) {}
+
+// Restaurer les notes et arrivees tot depuis localStorage (survit au refresh)
+try {
+  const cachedEarly = localStorage.getItem('cachedEarlyArrivals');
+  if (cachedEarly) earlyArrivals = JSON.parse(cachedEarly);
+  const cachedNotes = localStorage.getItem('cachedCalendarNotes');
+  if (cachedNotes) calendarNotes = JSON.parse(cachedNotes);
 } catch(e) {}
 
 render();
