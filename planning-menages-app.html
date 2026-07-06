@@ -1428,10 +1428,6 @@ function saveCalendarNote(dateStr) {
     localStorage.setItem('cachedEarlyArrivals', JSON.stringify(earlyArrivals));
   } catch(e) {}
   render();
-  // DEBUG: confirmer la sauvegarde
-  var earlyCount = Object.keys(earlyArrivals).length;
-  var lsCheck = localStorage.getItem('cachedEarlyArrivals');
-  alert('Sauvegarde OK!\nArrivees tot en memoire: ' + earlyCount + '\nLocalStorage: ' + (lsCheck ? lsCheck.substring(0, 80) : 'VIDE'));
   syncPushState(); // envoi immediat, pas de debounce
 }
 function deleteCalendarNote(dateStr) {
@@ -1564,15 +1560,6 @@ try {
   const cachedNotes = localStorage.getItem('cachedCalendarNotes');
   if (cachedNotes) calendarNotes = JSON.parse(cachedNotes);
 } catch(e) {}
-
-// DEBUG: afficher ce qui a ete restaure
-var _dbgEarly = Object.keys(earlyArrivals).length;
-if (_dbgEarly > 0) {
-  document.title = 'DEBUG: ' + _dbgEarly + ' arrivees tot restaurees depuis localStorage';
-} else {
-  var _rawLS = localStorage.getItem('cachedEarlyArrivals');
-  document.title = 'DEBUG: 0 arrivees tot. LS=' + (_rawLS ? _rawLS.substring(0,50) : 'NULL');
-}
 
 render();
 
