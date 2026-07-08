@@ -82,6 +82,11 @@ def get_version():
     return jsonify({"version": state.get("version", 0)})
 
 
+@app.route("/health")
+def health_check():
+    return jsonify({"status": "ok"}), 200
+
+
 @app.route("/api/<path:lodgify_path>", methods=["GET", "POST", "OPTIONS"])
 def proxy_lodgify(lodgify_path):
     if request.method == "OPTIONS":
