@@ -19,7 +19,7 @@ LODGIFY_BASE = "https://api.lodgify.com"
 DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(DIR, "shared_state.json")
 
-state_lock = threading.Lock()
+state_lock = threading.RLock()  # RLock = reentrant, evite le deadlock update_state→save_state
 
 
 def load_state():

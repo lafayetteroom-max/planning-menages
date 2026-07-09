@@ -643,6 +643,12 @@ async function fetchLodgifyData() {
         customTimes = savedState.customTimes || {};
         customGuests = savedState.customGuests || {};
         stateVersion = savedState.version || 0;
+        // Reconciliation: si le serveur est vide (version 0) mais qu'on a des donnees locales, on les renvoie
+        var hasLocalData = Object.keys(calendarNotes).length > 0 || Object.keys(earlyArrivals).length > 0 || Object.keys(cleaningStatus).length > 0;
+        if (stateVersion === 0 && hasLocalData) {
+          console.log('Serveur vide detecte — reconciliation: envoi des donnees locales au serveur');
+          syncPushState();
+        }
       }
     } catch(e) { cleaningStatus = {}; }
 
