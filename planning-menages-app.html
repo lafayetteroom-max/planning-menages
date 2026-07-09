@@ -499,8 +499,15 @@ async function fetchLodgifyData() {
         const extras = known ? known.extras : [];
         return { id: p.id || p.property_id || p.Id, name, color, colorClass: "prop-" + i, extras };
       });
-      const propIdOrder = { 667331: 0, 494975: 1 };
-      PROPERTIES.sort((a, b) => (propIdOrder[a.id] != null ? propIdOrder[a.id] : 99) - (propIdOrder[b.id] != null ? propIdOrder[b.id] : 99));
+      // Ordre d'affichage de haut en bas : Amis, Perle, Rose
+      function propSortOrder(p) {
+        var n = getDisplayName(p.name).toLowerCase();
+        if (n === 'amis') return 0;
+        if (n === 'perle') return 1;
+        if (n === 'rose') return 2;
+        return 99;
+      }
+      PROPERTIES.sort((a, b) => propSortOrder(a) - propSortOrder(b));
       PROPERTIES.forEach((p, i) => { p.colorClass = 'prop-' + i; });
     }
 
