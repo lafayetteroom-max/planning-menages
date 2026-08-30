@@ -615,7 +615,7 @@ async function fetchLodgifyData() {
             });
             console.log('Auto-added property:', b.propertyId, b.propertyName);
           }
-          if (b.checkout < addDays(today, -5)) return false;
+          if (b.checkout < addDays(today, -60)) return false;
           if (b.status && b.status.toLowerCase() !== 'booked') return false;
           return true;
         });
